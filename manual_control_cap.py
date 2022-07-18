@@ -64,6 +64,7 @@ import os
 import sys
 import threading
 import time
+import cv2
 
 try:
     sys.path.append(glob.glob('../carla/dist/carla-*%d.%d-%s.egg' % (
@@ -147,8 +148,10 @@ except ImportError:
 # -- Global functions ----------------------------------------------------------
 # ==============================================================================
 
-IMG_WIDTH = 1280 
-IMG_HEIGHT = 960 
+#IMG_WIDTH = 1280 
+#IMG_HEIGHT = 960 
+IMG_WIDTH = 640 
+IMG_HEIGHT = 480 
 ego_vehicle = 0
 ego_action = {} 
 global_quit = False
@@ -1224,21 +1227,49 @@ def game_loop(args):
         time.sleep(0.6)
 
         def predict(sensor_list, control_queue):
+            from pointnet import PointNetDenseCls
+            from resnet50 import ResNet50 
+
+            resnet = ResNet50()
+            pointnet = PointNetDenseCls()
+
+            reset.load_stat_dict(torch.load('./checkpoints/reset.pth'))
+            pointnet.load_stat_dict(torch.load('./checkpoints/pointnet.pth'))
+
+            resnet.cuda()
+            pointnet.cuda()
+
             while True:
+                lidar_action = []
+                img_action = []
                 if is_il_control and control_queue.qsize() > 0:
-                    s_frame = control_queue.get(True, 1.0)
-                    sensor_data = s_frame[0]
-                    sensor_frame = s_frame[1]
-                    sensor_name = s_frame[2]
-                    if 'lidar_forward' in sensor_name:
-                        print("Lidar frame: ", sensor_data.frame)
-                    if 'camera' in sensor_name:
-                        raw_img = np.frombuffer(sensor_data.raw_data, dtype=np.dtype("uint8"))
-                        img = np.reshape(raw_img, (IMG_HEIGHT, IMG_WIDTH, 4))
-                        rgb = Tensor(img[:, :, :3]).permute(2, 1, 0)
-                        print("Camera frame: ", sensor_data.frame)
-                        print(rgb.shape)
-                        
+                    for i in sensor_list:
+                        s_frame = control_queue.get(True, 1.0)
+                        sensor_data = s_frame[0]
+                        sensor_frame = s_frame[1]
+                        sensor_name = s_frame[2]
+                        if 'lidar_forward' in sensor_name:
+                            lidar = Tensor(np.frombuffer(sensor_data.raw_data, dtype=np.float32).reshape([-1, 4])[:, :3])
+                            lidar = lidar[None, None].permute(0, 1, 3, 2)
+                            lidar_action = pointnet(lidar)
+                            #print("Lidar: ", lidar.shape, sensor_data.frame)
+
+                        if 'camera' in sensor_name:
+                            raw_img = np.frombuffer(sensor_data.raw_data, dtype=np.dtype("uint8"))
+                            img = np.reshape(raw_img, (sensor_data.height, sensor_data.width, 4))
+                            rgb = Tensor(img[:, :, :3]).permute(2, 0, 1)
+                            rgb = rgb[None]
+                            img_action = resnet(rgb)
+                            #print("Camera: ", rgb.shape, sensor_data.frame)
+                    avg_action = list(np.mean(np.array(lidar_action), np.array(img_action), axis=0))
+
+                    c = ego_vehicle.get_control()
+                    c.throttle = avg_action[0]
+                    c.steer = avg_action[1]
+                    c.brake = avg_action[2]
+                    c.reverse = True if avg_action[3] > 0.7 else False
+                    world.player.apply_control(c)
+                 
                 elif global_quit:
                     break
 
