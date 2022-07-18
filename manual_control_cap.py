@@ -1262,6 +1262,7 @@ def game_loop(args):
                             img_action = resnet(rgb)
                             #print("Camera: ", rgb.shape, sensor_data.frame)
                     avg_action = list(np.mean(np.array(lidar_action), np.array(img_action), axis=0))
+                    print(avg_action)
 
                     c = ego_vehicle.get_control()
                     c.throttle = avg_action[0]
