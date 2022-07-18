@@ -93,6 +93,7 @@ import re
 import weakref
 from queue import Queue
 from queue import Empty
+import torch
 
 try:
     import pygame
@@ -152,6 +153,8 @@ ego_vehicle = 0
 ego_action = {} 
 global_quit = False
 is_capturing = False
+is_il_control = False
+Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
 
 
 def find_weather_presets():
@@ -360,6 +363,8 @@ class KeyboardControl(object):
         if isinstance(self._control, carla.VehicleControl):
             current_lights = self._lights
         global global_quit
+        global is_il_control
+        global is_capturing
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 global_quit = True
@@ -386,7 +391,10 @@ class KeyboardControl(object):
                 elif event.key == K_b and pygame.key.get_mods() & KMOD_SHIFT:
                     world.load_map_layer(unload=True)
                 elif event.key == K_b:
-                    world.load_map_layer()
+                    is_capturing = False
+                    is_il_control = not is_il_control
+                    world.hud.notification("Enable imitation learning control!" if is_il_control else "Disable imitation learning control!")
+                    print("Enable imitation learning control!" if is_il_control else "Disable imitation learning control!")
                 elif event.key == K_h or (event.key == K_SLASH and pygame.key.get_mods() & KMOD_SHIFT):
                     world.hud.help.toggle()
                 elif event.key == K_TAB:
@@ -396,10 +404,9 @@ class KeyboardControl(object):
                 elif event.key == K_c:
                     world.next_weather()
                 elif event.key == K_g:
-                    global is_capturing
                     is_capturing = not is_capturing
-                    world.hud.notification("Enable capturing!" if is_capturing else "Disable Capturing")
-                    print("Enable capturing!" if is_capturing else "Disable Capturing")
+                    world.hud.notification("Enable capturing!" if is_capturing else "Disable Capturing!")
+                    print("Enable capturing!" if is_capturing else "Disable Capturing!")
                     #world.toggle_radar()
                 elif event.key == K_BACKQUOTE:
                     world.camera_manager.next_sensor()
@@ -1100,7 +1107,7 @@ class CameraManager(object):
 # -- sensor_callback() ---------------------------------------------------------------
 # ==============================================================================
 
-def sensor_callback(sensor_data, sensor_queue, sensor_name):
+def sensor_callback(sensor_data, sensor_queue, control_queue, sensor_name):
     if is_capturing:
         if 'camera' in sensor_name:
             global ego_action
@@ -1109,6 +1116,8 @@ def sensor_callback(sensor_data, sensor_queue, sensor_name):
             ego_action['t01_%010d' % sensor_data.frame] = action
 
         sensor_queue.put((sensor_data, sensor_data.frame, sensor_name))
+    if is_il_control:
+        control_queue.put((sensor_data, sensor_data.frame, sensor_name))
 
 
 # ==============================================================================
@@ -1123,8 +1132,10 @@ def game_loop(args):
     action = []
     world_ = None
     thread_obj = None
+    thread_obj1 = None
     sensor_list = []
     sensor_queue = Queue()
+    control_queue = Queue(2)
 
     try:
         client = carla.Client(args.host, args.port)
@@ -1179,7 +1190,7 @@ def game_loop(args):
 
         # spawn the sensors and attach them to the vehicle
         camera_sensor = world_.spawn_actor(camera_bp, camera_spawn_point, attach_to=ego_vehicle, attachment_type=carla.AttachmentType.Rigid)
-        camera_sensor.listen(lambda image: sensor_callback(image, sensor_queue, "camera"))
+        camera_sensor.listen(lambda image: sensor_callback(image, sensor_queue, control_queue, "camera"))
         sensor_list.append(camera_sensor)
 
         #lidar_rotation_sensor = world_.spawn_actor(lidar_bp_rotation, lidar_rotation_spawn_point, attach_to=ego_vehicle, attachment_type=carla.AttachmentType.Rigid)
@@ -1187,7 +1198,7 @@ def game_loop(args):
         #sensor_list.append(lidar_rotation_sensor)
 
         lidar_forward_sensor = world_.spawn_actor(lidar_bp_forward, lidar_forward_spawn_point, attach_to=ego_vehicle, attachment_type=carla.AttachmentType.Rigid)
-        lidar_forward_sensor.listen(lambda point_cloud: sensor_callback(point_cloud, sensor_queue, "lidar_forward")) 
+        lidar_forward_sensor.listen(lambda point_cloud: sensor_callback(point_cloud, sensor_queue, control_queue, "lidar_forward"))
         sensor_list.append(lidar_forward_sensor)
 
         clock = pygame.time.Clock()
@@ -1212,6 +1223,29 @@ def game_loop(args):
         thread_obj.start()
         time.sleep(0.6)
 
+        def predict(sensor_list, control_queue):
+            while True:
+                if is_il_control and control_queue.qsize() > 0:
+                    s_frame = control_queue.get(True, 1.0)
+                    sensor_data = s_frame[0]
+                    sensor_frame = s_frame[1]
+                    sensor_name = s_frame[2]
+                    if 'lidar_forward' in sensor_name:
+                        print("Lidar frame: ", sensor_data.frame)
+                    if 'camera' in sensor_name:
+                        raw_img = np.frombuffer(sensor_data.raw_data, dtype=np.dtype("uint8"))
+                        img = np.reshape(raw_img, (IMG_HEIGHT, IMG_WIDTH, 4))
+                        rgb = Tensor(img[:, :, :3]).permute(2, 1, 0)
+                        print("Camera frame: ", sensor_data.frame)
+                        print(rgb.shape)
+                        
+                elif global_quit:
+                    break
+
+        thread_obj1 = threading.Thread(target=predict, args=(sensor_list, control_queue))
+        thread_obj1.start()
+        time.sleep(0.6)
+
         while True:
             clock.tick_busy_loop(60)
             if controller.parse_events(client, world, clock):
@@ -1222,6 +1256,7 @@ def game_loop(args):
 
     finally:
         thread_obj.join()
+        thread_obj1.join()
         np.save('/home/wbkou/data/t01_action.npy', ego_action)
 
         if (world and world.recording_enabled):
