@@ -1136,9 +1136,12 @@ def game_loop(args):
     world_ = None
     thread_obj = None
     thread_obj1 = None
+    thread_obj2 = None
     sensor_list = []
     sensor_queue = Queue()
     control_queue = Queue(2)
+    #c = world.player.get_control()
+    c = carla.VehicleControl()
 
     try:
         client = carla.Client(args.host, args.port)
@@ -1216,9 +1219,11 @@ def game_loop(args):
                     #if 'lidar_rotation' in sensor_name:
                     #   sensor_data.save_to_disk('E:/wbkou/data/lidar_r/%010d.ply' % sensor_frame)
                     if 'lidar_forward' in sensor_name:
-                        sensor_data.save_to_disk('/home/wbkou/data/lidar_f/t01_%010d.ply' % sensor_frame)
+                        #sensor_data.save_to_disk('/home/wbkou/data/lidar_f/t01_%010d.ply' % sensor_frame) #for linux
+                        sensor_data.save_to_disk('E:/wbkou/data/lidar_f/t01_%010d.ply' % sensor_frame) #for windows
                     if 'camera' in sensor_name:
-                        sensor_data.save_to_disk('/home/wbkou/data/rgb/t01_%010d.png' % sensor_frame)
+                        #sensor_data.save_to_disk('/home/wbkou/data/rgb/t01_%010d.png' % sensor_frame) #for linux
+                        sensor_data.save_to_disk('E:/wbkou/data/rgb/t01_%010d.png' % sensor_frame) #for windows
                 elif not is_capturing and global_quit:
                     break
 
@@ -1233,15 +1238,17 @@ def game_loop(args):
             resnet = ResNet50()
             pointnet = PointNetDenseCls()
 
-            reset.load_stat_dict(torch.load('./checkpoints/reset.pth'))
-            pointnet.load_stat_dict(torch.load('./checkpoints/pointnet.pth'))
+            resnet.load_state_dict(torch.load('./checkpoints/resnet.pth'))
+            pointnet.load_state_dict(torch.load('./checkpoints/pointnet.pth'))
 
             resnet.cuda()
             pointnet.cuda()
 
+            resnet.eval()
+            pointnet.eval()
+
+            current_lights = carla.VehicleLightState.NONE
             while True:
-                lidar_action = []
-                img_action = []
                 if is_il_control and control_queue.qsize() > 0:
                     for i in sensor_list:
                         s_frame = control_queue.get(True, 1.0)
@@ -1249,33 +1256,108 @@ def game_loop(args):
                         sensor_frame = s_frame[1]
                         sensor_name = s_frame[2]
                         if 'lidar_forward' in sensor_name:
-                            lidar = Tensor(np.frombuffer(sensor_data.raw_data, dtype=np.float32).reshape([-1, 4])[:, :3])
-                            lidar = lidar[None, None].permute(0, 1, 3, 2)
-                            lidar_action = pointnet(lidar)
+                            lidar = Tensor(np.frombuffer(sensor_data.raw_data, dtype=np.float32).copy().reshape([-1, 4])[:, :3])
+                            lidar = lidar[None].permute(0, 2, 1)
+                            lidar_throttle, lidar_steer, lidar_brake, lidar_reverse = pointnet(lidar)
                             #print("Lidar: ", lidar.shape, sensor_data.frame)
 
                         if 'camera' in sensor_name:
-                            raw_img = np.frombuffer(sensor_data.raw_data, dtype=np.dtype("uint8"))
+                            raw_img = np.frombuffer(sensor_data.raw_data, dtype=np.dtype("uint8")).copy()
                             img = np.reshape(raw_img, (sensor_data.height, sensor_data.width, 4))
                             rgb = Tensor(img[:, :, :3]).permute(2, 0, 1)
                             rgb = rgb[None]
-                            img_action = resnet(rgb)
+                            img_throttle, img_steer, img_brake, img_reverse = resnet(rgb)
                             #print("Camera: ", rgb.shape, sensor_data.frame)
-                    avg_action = list(np.mean(np.array(lidar_action), np.array(img_action), axis=0))
-                    print(avg_action)
 
-                    c = ego_vehicle.get_control()
-                    c.throttle = avg_action[0]
-                    c.steer = avg_action[1]
-                    c.brake = avg_action[2]
-                    c.reverse = True if avg_action[3] > 0.7 else False
-                    world.player.apply_control(c)
+                    #lidar
+                    if True:
+                        lidar_throttle = float(lidar_throttle.detach().cpu().numpy()[0, 0])
+                        lidar_steer = float(lidar_steer.detach().cpu().numpy()[0, 0])
+                        lidar_brake = float(lidar_brake.detach().cpu().numpy()[0, 0])
+                        lidar_brake = lidar_brake if lidar_brake > 0.6 else 0.0
+                        lidar_reverse = lidar_reverse.detach().cpu().numpy()[0, 0]
+                        lidar_reverse = True if lidar_reverse > 0.7 else False
+                        print("Lidar: ", lidar_throttle, lidar_steer, lidar_brake, lidar_reverse)
+
+                        c.throttle = lidar_throttle 
+                        c.steer = lidar_steer 
+                        c.brake = lidar_brake
+                        c.reverse = lidar_reverse 
+                        c.hand_brake = False
+                        c.manual_gear_shift = False
+                        c.gear = 1 if c.reverse else -1
+                    
+                    #img
+                    if False:
+                        img_throttle = float(img_throttle.detach().cpu().numpy()[0, 0])
+                        img_steer = float(img_steer.detach().cpu().numpy()[0, 0])
+                        img_brake = float(img_brake.detach().cpu().numpy()[0, 0])
+                        img_brake = img_brake if img_brake > 0.6 else 0.0
+                        img_reverse = img_reverse.detach().cpu().numpy()[0, 0]
+                        img_reverse = True if img_reverse > 0.7 else False
+                        print("Img: ", img_throttle, img_steer, img_brake, img_reverse)
+
+                        c.throttle = img_throttle 
+                        c.steer = img_steer 
+                        c.brake = img_brake 
+                        c.reverse = img_reverse 
+                        c.hand_brake = False
+                        c.manual_gear_shift = False
+                        c.gear = 1 if c.reverse else -1
+
+
+                    #avg
+                    if False:
+                        throttle = (lidar_throttle + img_throttle) / 2 
+                        steer = (lidar_steer + img_steer) / 2
+                        brake = (lidar_brake + img_brake) / 2
+                        reverse = (lidar_reverse + img_reverse) / 2
+
+                        throttle = float(throttle.detach().cpu().numpy()[0, 0])
+                        steer = float(steer.detach().cpu().numpy()[0, 0])
+                        brake = float(brake.detach().cpu().numpy()[0, 0])
+                        brake = brake if brake > 0.6 else 0.0
+                        reverse = True if float(reverse.detach().cpu().numpy()[0, 0]) > 0.7 else False
+
+                        print("Avg: ", throttle, steer, brake, reverse)
+
+                        c.throttle = throttle 
+                        c.steer = steer 
+                        c.brake = brake 
+                        c.reverse = reverse 
+                        c.hand_brake = False
+                        c.manual_gear_shift = False
+                        c.gear = 1 if c.reverse else -1
+
+                    #ego_vehicle.apply_control(c)
+
+                    if c.brake:
+                        current_lights |= carla.VehicleLightState.Brake
+                    else: # Remove the Brake flag
+                        current_lights &= ~carla.VehicleLightState.Brake
+                    if c.reverse:
+                        current_lights |= carla.VehicleLightState.Reverse
+                    else: # Remove the Reverse flag
+                        current_lights &= ~carla.VehicleLightState.Reverse
+                    ego_vehicle.set_light_state(carla.VehicleLightState(current_lights))
                  
                 elif global_quit:
                     break
 
         thread_obj1 = threading.Thread(target=predict, args=(sensor_list, control_queue))
         thread_obj1.start()
+        time.sleep(0.6)
+
+        def send_cmd():
+            while True:
+                if is_il_control:
+                    ego_vehicle.apply_control(c)
+                if global_quit:
+                    break
+
+
+        thread_obj2 = threading.Thread(target=send_cmd)
+        thread_obj2.start()
         time.sleep(0.6)
 
         while True:
@@ -1289,7 +1371,9 @@ def game_loop(args):
     finally:
         thread_obj.join()
         thread_obj1.join()
-        np.save('/home/wbkou/data/t01_action.npy', ego_action)
+        thread_obj2.join()
+        #np.save('/home/wbkou/data/t01_action.npy', ego_action) #for linux
+        np.save('E:/wbkou/data/t01_action.npy', ego_action) #for windows
 
         if (world and world.recording_enabled):
             client.stop_recorder()
