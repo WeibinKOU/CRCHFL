@@ -7,8 +7,9 @@ import torch
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 
-from pointnet import PointNetDenseCls
-from resnet50 import ResNet50 
+#from pointnet import PointNetDenseCls
+#from resnet50 import ResNet50 
+from fusion import ActionPredictModel
 from dataloader import LidarData, ImgData, ActionData 
 from config import * 
 
@@ -16,11 +17,12 @@ np.random.seed(0)
 torch.manual_seed(0)
 print(torch.__version__)
 
+
 if torch.cuda.is_available():
     torch.cuda.manual_seed_all(0)
-    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.deterministic = True 
     torch.backends.cudnn.benchmark = True 
-    torch.backends.cudnn.enabled = True
+    torch.backends.cudnn.enabled = False 
     print(torch.version.cuda)
     print(torch.backends.cudnn.version())
     print(torch.cuda.get_device_name(0))
@@ -45,37 +47,46 @@ def main():
     # Init a dataloader object
     print("\nTraining data loading ...\n")
 
-    img_dataset = ImgData("./dataset/images/", data_transform)
+    img_dataset = ImgData("../code/dataset/images/", data_transform)
+    #img_dataset = ImgData("./dataset/images/", data_transform)
     img_dataloader = DataLoader(img_dataset, 
             batch_size=args.batch_size,
-            shuffle=True,
+            shuffle=False,
             num_workers=0,
             drop_last=True)
 
-    lidar_dataset = LidarData("./dataset/lidars/")
-    action_dataset = ActionData("./dataset/action.npy")
+    lidar_dataset = LidarData("../code/dataset/lidars/")
+    action_dataset = ActionData("../code/dataset/action.npy")
+    #lidar_dataset = LidarData("./dataset/lidars/")
+    #action_dataset = ActionData("./dataset/action.npy")
 
-    resnet = ResNet50()
-    pointnet = PointNetDenseCls()
+    #resnet = ResNet50()
+    #pointnet = PointNetDenseCls()
 
-    resnet.to(device)
-    pointnet.to(device)
+    #resnet.to(device)
+    #pointnet.to(device)
 
-    parameters = list(resnet.parameters()) + list(pointnet.parameters())
+    action_model = ActionPredictModel()
+    action_model.to(device)
+
+    parameters = action_model.parameters()
     optim = torch.optim.Adam(parameters, lr=args.lr, betas=(args.b1, args.b2))
 
     for epoch in range(args.epochs):
-        resnet.train()
-        pointnet.train()
+        #resnet.train()
+        #pointnet.train()
+        action_model.train()
 
-        avg_loss_sum = 0
-        batch_cnt = 0
+        avg_loss_sum = 0.0
+        batch_cnt = 1
         for name, imgs in tqdm(img_dataloader):
+            torch.cuda.empty_cache()
             action = action_dataset.getitems(name)
             lidars = lidar_dataset.getitems(name)
 
             optim.zero_grad()
 
+            '''
             img_throttle, img_steer, img_brake, img_reverse = resnet(imgs)
             throttle_loss1 = mse_loss(img_throttle, action[:, 0].reshape(BATCH_SIZE, -1)) 
             steer_loss1 = mse_loss(img_steer, action[:, 1].reshape(BATCH_SIZE, -1))
@@ -91,6 +102,14 @@ def main():
             lidar_avg_loss = (throttle_loss2 + steer_loss2 + brake_loss2 + reverse_loss2) / 4
 
             avg_loss = (img_avg_loss + lidar_avg_loss) / 2
+            '''
+            throttle, steer, brake, reverse = action_model(imgs, lidars)
+            throttle_loss = mse_loss(throttle, action[:, 0].reshape(BATCH_SIZE, -1)) 
+            steer_loss = mse_loss(steer, action[:, 1].reshape(BATCH_SIZE, -1))
+            brake_loss = bce_loss(brake, action[:, 2].reshape(BATCH_SIZE, -1))
+            reverse_loss = bce_loss(reverse, action[:, 3].reshape(BATCH_SIZE, -1))
+            avg_loss = (1.5 * throttle_loss + 1.5 * steer_loss + 0.5 * brake_loss + 0.5 * reverse_loss) / 4.0
+            #print(avg_loss)
 
             #avg_loss.backward(retain_graph=True)
             avg_loss.backward()
@@ -109,15 +128,18 @@ def main():
         log_info = "[Epoch: %d/%d] [Training Average Loss: %f]" % (epoch, args.epochs, loss.item())
         print(log_info) 
 
-        resnet_name = "Epoch_%d_resnet.pth" % (epoch)
-        pointnet_name = "Epoch_%d_pointnet.pth" % (epoch)
+        #resnet_name = "Epoch_%d_resnet.pth" % (epoch)
+        #pointnet_name = "Epoch_%d_pointnet.pth" % (epoch)
+        actionM_name = "Epoch_%d_action.pth" % (epoch)
 
-        resnet_save_path = os.path.join(RESNET_MODEL_PATH, resnet_name)
-        pointnet_save_path = os.path.join(POINTNET_MODEL_PATH, pointnet_name) 
+        #resnet_save_path = os.path.join(RESNET_MODEL_PATH, resnet_name)
+        #pointnet_save_path = os.path.join(POINTNET_MODEL_PATH, pointnet_name) 
+        actionM_save_path = os.path.join(ACTION_MODEL_PATH, actionM_name) 
 
         if epoch % 5 == 0:
-            torch.save(resnet.state_dict(), resnet_save_path)
-            torch.save(pointnet.state_dict(), pointnet_save_path)
+            #torch.save(resnet.state_dict(), resnet_save_path)
+            #torch.save(pointnet.state_dict(), pointnet_save_path)
+            torch.save(action_model.state_dict(), actionM_save_path)
 
 if __name__ == "__main__":
     main()

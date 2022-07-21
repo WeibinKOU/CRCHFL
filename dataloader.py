@@ -3,7 +3,7 @@ from torchvision import transforms
 from glob import glob
 
 from torch.utils.data import DataLoader, Dataset
-from config import Tensor
+from config import Tensor, MAX_PT_NUM
 
 import cv2
 import numpy as np
@@ -71,13 +71,13 @@ class LidarData():
         for lidar in lidars:
             lidar_dict[lidar.split('\\')[-1].split('.')[0]] = np.loadtxt(lidar)
         def align_lidar(lidar_dict):
-            max_npoints = 0
-            n_list = []
-            for v in lidar_dict.values():
-                n_list.append(v.shape[0])
-            max_npoints = max(n_list)
+            #max_npoints = 0
+            #n_list = []
+            #for v in lidar_dict.values():
+            #    n_list.append(v.shape[0])
+            #max_npoints = max(n_list)
             for k, v in lidar_dict.items():
-                add = np.repeat(v[-1].reshape(1, 4), max_npoints - v.shape[0], axis=0)
+                add = np.repeat(v[-1].reshape(1, 4), MAX_PT_NUM - v.shape[0], axis=0)
                 lidar_dict[k] = np.concatenate((v, add), axis=0)
         align_lidar(lidar_dict)
         self.data = lidar_dict 

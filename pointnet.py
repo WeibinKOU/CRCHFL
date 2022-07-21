@@ -158,25 +158,34 @@ class PointNetDenseCls(nn.Module):
         self.conv1 = torch.nn.Conv1d(1088, 512, 1)
         self.conv2 = torch.nn.Conv1d(512, 256, 1)
         self.conv3 = torch.nn.Conv1d(256, 128, 1)
-        self.conv4 = torch.nn.Conv1d(128, 64, 1)
-        self.conv5 = torch.nn.Conv1d(64, 32, 1)
-        self.conv6 = torch.nn.Conv1d(32, 16, 1)
-        self.conv7 = torch.nn.Conv1d(16, 4, 1)
         self.bn1 = nn.BatchNorm1d(512)
         self.bn2 = nn.BatchNorm1d(256)
         self.bn3 = nn.BatchNorm1d(128)
-        self.bn4 = nn.BatchNorm1d(64)
-        self.bn5 = nn.BatchNorm1d(32)
-        self.bn6 = nn.BatchNorm1d(16)
-        self.bn7 = nn.BatchNorm1d(self.k)
 
-        #self.fc_throttle = nn.Linear(4, 1)
-        #self.fc_steer = nn.Linear(4, 1)
-        #self.fc_brake = nn.Linear(4, 1)
-        #self.fc_reverse = nn.Linear(4, 1)
+        self.maxpool1 = nn.MaxPool1d(kernel_size = 7, stride = 5)
+        self.maxpool2 = nn.MaxPool1d(kernel_size = 5, stride = 3)
+        self.maxpool3 = nn.MaxPool1d(kernel_size = 3, stride = 2)
 
-        self.sigmoid = nn.Sigmoid()
-        self.tanh = nn.Tanh()
+        self.conv2d1 = nn.Conv2d(3, 64, (2, 3), (1, 2))
+        self.conv2d2 = nn.Conv2d(3, 64, (2, 3), (1, 2))
+        self.conv2d3 = nn.Conv2d(3, 64, (2, 3), (1, 2))
+        self.layers = nn.Sequential(
+                nn.Conv2d(3, 64, (2, 4), (1, 3)),
+                nn.BatchNorm2d(64),
+                nn.ReLU(),
+                nn.Conv2d(64, 128, (2, 4), (1, 3)),
+                nn.BatchNorm2d(128),
+                nn.ReLU(),
+                #nn.Conv2d(128, 256, 1, (1, 2)),
+                #nn.BatchNorm2d(256),
+                #nn.ReLU(),
+                #nn.Conv2d(256, 512, 1, 1),
+                #nn.BatchNorm2d(512),
+                #nn.ReLU(),
+                #nn.Conv2d(512, 512, 3, 1),
+                #nn.BatchNorm2d(512),
+                #nn.ReLU()
+                )
 
 
     def forward(self, x):
@@ -186,38 +195,29 @@ class PointNetDenseCls(nn.Module):
         x = F.relu(self.bn1(self.conv1(x)))
         x = F.relu(self.bn2(self.conv2(x)))
         x = F.relu(self.bn3(self.conv3(x)))
-        x = F.relu(self.bn4(self.conv4(x)))
-        x = F.relu(self.bn5(self.conv5(x)))
-        x = F.relu(self.bn6(self.conv6(x)))
-        x = F.relu(self.bn7(self.conv7(x)))
 
-        x = x.reshape((batchsize, -1))
+        x1 = self.maxpool3(x)
+        x2 = self.maxpool2(x)
+        x3 = self.maxpool1(x)
 
-        throttle = nn.Linear(self.k * n_pts, 1).to(device)(x)
-        throttle = self.sigmoid(throttle)
+        diffY = x1.size()[1] - x2.size()[1]
+        diffX = x1.size()[2] - x2.size()[2]
 
-        steer = nn.Linear(self.k * n_pts, 1).to(device)(x)
-        steer = self.tanh(steer)
+        x2 = F.pad(x2, [diffX // 2, diffX - diffX // 2,
+                        diffY // 2, diffY - diffY // 2])
+
+        diffY = x1.size()[1] - x3.size()[1]
+        diffX = x1.size()[2] - x3.size()[2]
+
+        x3 = F.pad(x3, [diffX // 2, diffX - diffX // 2,
+                        diffY // 2, diffY - diffY // 2])
         
-        brake = nn.Linear(self.k * n_pts, 1).to(device)(x)
-        brake = self.sigmoid(brake)
+        x1, x2, x3 = x1[:,None], x2[:,None], x3[:,None]
+        x = torch.cat((x1, x2, x3), dim=1)
 
-        reverse = nn.Linear(self.k * n_pts, 1).to(device)(x)
-        reverse = self.sigmoid(reverse)
+        x = self.layers(x)
 
-        #throttle = self.fc_throttle(x)
-        #throttle = self.sigmoid(throttle)
-
-        #steer = self.fc_steer(x)
-        #steer = self.tanh(steer)
-
-        #brake = self.fc_brake(x)
-        #brake = self.sigmoid(brake)
-
-        #reverse = self.fc_reverse(x)
-        #reverse = self.sigmoid(reverse)
-
-        return throttle, steer, brake, reverse
+        return x 
 
 #def feature_transform_regularizer(trans):
 #    d = trans.size()[1]

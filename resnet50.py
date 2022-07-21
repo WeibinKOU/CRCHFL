@@ -82,18 +82,10 @@ class ResNet(nn.Module):
         self.max_pool = nn.MaxPool2d(kernel_size = 3, stride=2, padding=1)
         
         self.layer1 = self._make_layer(ResBlock, layer_list[0], planes=64)
-        self.layer2 = self._make_layer(ResBlock, layer_list[1], planes=128, stride=2)
-        self.layer3 = self._make_layer(ResBlock, layer_list[2], planes=256, stride=2)
-        self.layer4 = self._make_layer(ResBlock, layer_list[3], planes=512, stride=2)
+        self.layer2 = self._make_layer(ResBlock, layer_list[1], planes=128, stride=1)
+        self.layer3 = self._make_layer(ResBlock, layer_list[2], planes=256, stride=1)
+        self.layer4 = self._make_layer(ResBlock, layer_list[3], planes=512, stride=1)
         
-        self.avgpool = nn.AdaptiveAvgPool2d((1,1))
-        self.fc_throttle = nn.Linear(512*ResBlock.expansion, num_classes)
-        self.fc_steer = nn.Linear(512*ResBlock.expansion, num_classes)
-        self.fc_brake = nn.Linear(512*ResBlock.expansion, num_classes)
-        self.fc_reverse = nn.Linear(512*ResBlock.expansion, num_classes)
-
-        self.sigmoid = nn.Sigmoid()
-        self.tanh = nn.Tanh()
 
     def forward(self, x):
         x = self.relu(self.batch_norm1(self.conv1(x)))
@@ -103,23 +95,8 @@ class ResNet(nn.Module):
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
-        
-        x = self.avgpool(x)
-        x = x.reshape(x.shape[0], -1)
-
-        throttle = self.fc_throttle(x)
-        throttle = self.sigmoid(throttle)
-
-        steer = self.fc_steer(x)
-        steer = self.tanh(steer)
-
-        brake = self.fc_brake(x)
-        brake = self.sigmoid(brake)
-
-        reverse = self.fc_reverse(x)
-        reverse = self.sigmoid(reverse)
-        
-        return throttle, steer, brake, reverse
+       
+        return x 
         
     def _make_layer(self, ResBlock, blocks, planes, stride=1):
         ii_downsample = None
@@ -142,5 +119,7 @@ class ResNet(nn.Module):
         
         
 def ResNet50():
-    return ResNet(Bottleneck, [3,4,6,3])
+    #return ResNet(Bottleneck, [3,4,6,3]) #resnet50
+    #return ResNet(Bottleneck, [2,2,2,2]) #resnet18
+    return ResNet(Bottleneck, [1,1,1,1]) #resnet10
     
