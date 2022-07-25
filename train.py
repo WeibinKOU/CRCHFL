@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 import imgaug as ia
 import imgaug.augmenters as iaa
 
-from fusion import ActionPredictModel
+from fusion import ThrottleBrakeModel
 from dataloader import LidarData, ImgData, ActionData 
 from config import * 
 
@@ -84,26 +84,26 @@ def main():
             num_workers=0,
             drop_last=True)
 
-    action_model = ActionPredictModel(img_only=True, lidar_only=False, both=False)
-    action_model.to(device)
+    tb_model = ThrottleBrakeModel()
+    tb_model.to(device)
 
-    parameters = action_model.parameters()
+    parameters = tb_model.parameters()
     optim = torch.optim.Adam(parameters, lr=args.lr, betas=(args.b1, args.b2), weight_decay=1e-4)
 
     for epoch in range(args.epochs):
-        action_model.train()
+        tb_model.train()
 
         avg_loss_sum = 0.0
         batch_cnt = 0
         for name, imgs in tqdm(img_dataloader):
             action = action_dataset.getitems(name)
-            lidars = lidar_dataset.getitems(name)
+            #lidars = lidar_dataset.getitems(name)
+            throttle_brake = action[:, 0:3:2]
 
             optim.zero_grad()
 
-            output = action_model(imgs.to(device), lidars)
-            action[:, 1] = (action[:, 1] + 1.0) / 2.0
-            avg_loss = mse_loss(output, action[:, 0:3])
+            output = tb_model(imgs.to(device))
+            avg_loss = mse_loss(output, throttle_brake)
 
             avg_loss.backward()
             optim.step()
@@ -116,7 +116,7 @@ def main():
         print(log_info) 
 
         if epoch % 5 == 0:
-            action_model.eval()
+            tb_model.eval()
             val_batch_cnt = 0
             val_avg_loss_sum = 0.0
             name_bk = None
@@ -124,12 +124,11 @@ def main():
             for name, imgs in tqdm(val_dataloader):
                 name_bk = name
                 action = action_dataset.getitems(name)
-                lidars = val_lidar_dataset.getitems(name)
+                #lidars = val_lidar_dataset.getitems(name)
 
-                output = action_model(imgs.to(device), lidars)
-                throttle, steer, brake = output[0, 0], output[0, 1], output[0, 2],
-                action[:, 1] = (action[:, 1] + 1.0) / 2.0
-                val_avg_loss = mse_loss(output, action[:, 0:3])
+                output = tb_model(imgs.to(device))
+                throttle, brake = output[0, 0], output[0, 1]
+                val_avg_loss = mse_loss(output, action[:, 0:3:2])
 
                 val_avg_loss_sum += avg_loss
                 val_batch_cnt += 1
@@ -137,11 +136,9 @@ def main():
             val_loss = val_avg_loss_sum / val_batch_cnt
 
             throttle = throttle.detach().cpu().numpy()
-            steer = steer.detach().cpu().numpy()
-            steer = 2.0 * steer - 1.0
             brake = brake.detach().cpu().numpy()
 
-            print("%s prediction action: " % name_bk[0], throttle, steer, brake)
+            print("%s prediction action: " % name_bk[0], throttle, brake)
             log_info = "[Epoch: %d/%d] [Validation Average Loss: %f]" % (epoch, args.epochs, val_loss.item())
             print(log_info) 
 
@@ -151,7 +148,7 @@ def main():
         actionM_save_path = os.path.join(ACTION_MODEL_PATH, actionM_name) 
 
         if epoch % 10 == 0:
-            torch.save(action_model.state_dict(), actionM_save_path)
+            torch.save(tb_model.state_dict(), actionM_save_path)
 
 if __name__ == "__main__":
     main()

@@ -1224,10 +1224,10 @@ def game_loop(args):
         time.sleep(0.6)
 
         def predict(sensor_list, control_queue):
-            from fusion import ActionPredictModel
+            from fusion import ThrottleBrakeModel 
             from config import data_transform
 
-            action_model = ActionPredictModel(img_only=True, lidar_only=False, both=False)
+            action_model = ThrottleBrakeModel()
             action_model.load_state_dict(torch.load('./checkpoints/action.pth'))
             action_model.cuda()
             action_model.eval()
@@ -1260,27 +1260,28 @@ def game_loop(args):
                             rgb = rgb[None].cuda()
 
                     #throttle, steer, brake, reverse = action_model(rgb, lidar)
-                    output = action_model(rgb,lidar)
+                    output = action_model(rgb)
                     end = time.clock()
-                    throttle, steer, brake = output[0, 0], output[0, 1], output[0, 2],
+                    throttle, brake = output[0, 0], output[0, 1]
                     print("Prediction time: ", end - start)
 
                     throttle = float(throttle.detach().cpu().numpy())
                     throttle = 0.0 if throttle < 0.0 else throttle
                     
-                    steer = float(steer.detach().cpu().numpy())
-                    steer = 2.0 * steer - 1.0
-                    steer = 0.0 if abs(steer) < 0.1 else steer
+                    #steer = float(steer.detach().cpu().numpy())
+                    #steer = 2.0 * steer - 1.0
+                    #steer = 0.0 if abs(steer) < 0.1 else steer
 
                     brake = float(brake.detach().cpu().numpy())
                     brake = brake if brake > 0.6 else 0.0
 
                     reverse = False
 
-                    print("Action: ", throttle, steer, brake, reverse)
+                    print("Action: ", throttle, brake, reverse)
 
                     c.throttle = throttle 
-                    c.steer = steer 
+                    #c.steer = steer 
+                    c.steer = 0.0 
                     c.brake = brake
                     c.reverse = reverse 
                     c.hand_brake = False
