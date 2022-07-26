@@ -1224,10 +1224,10 @@ def game_loop(args):
         time.sleep(0.6)
 
         def predict(sensor_list, control_queue):
-            from fusion import ThrottleBrakeModel 
-            from config import data_transform
+            from fusion import ActionPredModel 
+            from config import data_transform, BATCH_SIZE, THREED_CHANNEL
 
-            action_model = ThrottleBrakeModel()
+            action_model = ActionPredModel()
             action_model.load_state_dict(torch.load('./checkpoints/action.pth'))
             action_model.cuda()
             action_model.eval()
@@ -1238,6 +1238,7 @@ def game_loop(args):
             time.sleep(1)
             rgb = None
             lidar = None
+            rgb_3d = None
             while True:
                 if is_il_control and not global_quit:
                     start = time.clock()
@@ -1260,15 +1261,25 @@ def game_loop(args):
                             rgb = rgb[None].cuda()
 
                     #throttle, steer, brake, reverse = action_model(rgb, lidar)
-                    output = action_model(rgb)
+                    if rgb_3d is None:
+                        print(rgb.shape)
+                        rgb_3d = rgb.repeat(BATCH_SIZE, 1, 1, 1)
+                        print(rgb_3d.shape)
+                    else:
+                        rgb_3d[0:BATCH_SIZE-1, :, :, :] = rgb_3d.clone()[1:BATCH_SIZE, :, :, :]
+                        rgb_3d[-1, :, :, :] = rgb
+                    shape = rgb_3d.shape
+                    rgb_3dr = rgb_3d.reshape([shape[0] // THREED_CHANNEL, shape[1], THREED_CHANNEL, shape[2], shape[3]])
+
+                    output = action_model(rgb_3d, rgb_3dr)
                     end = time.clock()
-                    throttle, brake = output[0, 0], output[0, 1]
+                    throttle, steer, brake = output[-1, 0], output[-1, 1], output[-1, 2]
                     print("Prediction time: ", end - start)
 
                     throttle = float(throttle.detach().cpu().numpy())
                     throttle = 0.0 if throttle < 0.0 else throttle
                     
-                    #steer = float(steer.detach().cpu().numpy())
+                    steer = float(steer.detach().cpu().numpy())
                     #steer = 2.0 * steer - 1.0
                     #steer = 0.0 if abs(steer) < 0.1 else steer
 
@@ -1277,11 +1288,11 @@ def game_loop(args):
 
                     reverse = False
 
-                    print("Action: ", throttle, brake, reverse)
+                    print("Action: ", throttle, steer, brake)
 
                     c.throttle = throttle 
-                    #c.steer = steer 
-                    c.steer = 0.0 
+                    c.steer = steer 
+                    #c.steer = 0.0 
                     c.brake = brake
                     c.reverse = reverse 
                     c.hand_brake = False

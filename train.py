@@ -9,9 +9,9 @@ from torch.utils.data import DataLoader
 import imgaug as ia
 import imgaug.augmenters as iaa
 
-from fusion import ThrottleBrakeModel
+from fusion import ActionPredModel 
 from dataloader import LidarData, ImgData, ActionData 
-from config import * 
+from config import *
 
 np.random.seed(0)
 torch.manual_seed(0)
@@ -84,62 +84,77 @@ def main():
             num_workers=0,
             drop_last=True)
 
-    tb_model = ThrottleBrakeModel()
-    tb_model.to(device)
+    action_model = ActionPredModel()
+    action_model.to(device)
 
-    parameters = tb_model.parameters()
+    parameters = action_model.parameters()
     optim = torch.optim.Adam(parameters, lr=args.lr, betas=(args.b1, args.b2), weight_decay=1e-4)
 
     for epoch in range(args.epochs):
-        tb_model.train()
+        action_model.train()
 
-        avg_loss_sum = 0.0
+        avg_loss1_sum = 0.0
+        avg_loss2_sum = 0.0
         batch_cnt = 0
         for name, imgs in tqdm(img_dataloader):
-            action = action_dataset.getitems(name)
+            action = action_dataset.getitems(name)[:, 0:3]
             #lidars = lidar_dataset.getitems(name)
-            throttle_brake = action[:, 0:3:2]
 
             optim.zero_grad()
+            imgs_cuda = imgs.to(device)
+            shape = imgs_cuda.shape
 
-            output = tb_model(imgs.to(device))
-            avg_loss = mse_loss(output, throttle_brake)
+            output = action_model(imgs_cuda, imgs_cuda.reshape([shape[0] // THREED_CHANNEL, shape[1], THREED_CHANNEL, shape[2], shape[3]]))
+            avg_loss1 = mse_loss(output[:, 0:3:2], action[:, 0:3:2])
+            avg_loss2 = mse_loss(output[:, 1], action[:, 1])
 
-            avg_loss.backward()
+            avg_loss1.backward(retain_graph=True)
+            avg_loss2.backward()
             optim.step()
-            avg_loss_sum += avg_loss
+            avg_loss1_sum += avg_loss1
+            avg_loss2_sum += avg_loss2
             batch_cnt += 1
 
-        loss = avg_loss_sum / batch_cnt
+        loss1 = avg_loss1_sum / batch_cnt
+        loss2 = avg_loss2_sum / batch_cnt
             
-        log_info = "[Epoch: %d/%d] [Training Average Loss: %f]" % (epoch, args.epochs, loss.item())
+        log_info = "[Epoch: %d/%d] [Training Average Loss: %f, %f]" % (epoch, args.epochs, loss1.item(), loss2.item())
         print(log_info) 
 
-        if epoch % 5 == 0:
-            tb_model.eval()
+        #if epoch % 5 == 0:
+        if False:
+            action_model.eval()
             val_batch_cnt = 0
-            val_avg_loss_sum = 0.0
+            val_avg_loss1_sum = 0.0
+            val_avg_loss2_sum = 0.0
             name_bk = None
             throttle, steer, brake, reverse = None, None, None, None
             for name, imgs in tqdm(val_dataloader):
                 name_bk = name
-                action = action_dataset.getitems(name)
+                action = action_dataset.getitems(name)[:, 0:3]
                 #lidars = val_lidar_dataset.getitems(name)
 
-                output = tb_model(imgs.to(device))
-                throttle, brake = output[0, 0], output[0, 1]
-                val_avg_loss = mse_loss(output, action[:, 0:3:2])
+                imgs_cuda = imgs.to(device)
+                shape = imgs_cuda.shape
 
-                val_avg_loss_sum += avg_loss
+                output = action_model(imgs_cuda, imgs_cuda.reshape([shape[0] // THREED_CHANNEL, shape[1], THREED_CHANNEL, shape[2], shape[3]]))
+                throttle, steer, brake = output[0, 0], output[0, 1], output[0, 2]
+
+                avg_loss1 = mse_loss(output[:, 0:3:2], action[:, 0:3:2])
+                avg_loss2 = mse_loss(output[:, 1], action[:, 1])
+                val_avg_loss1_sum += avg_loss1
+                val_avg_loss2_sum += avg_loss2
                 val_batch_cnt += 1
 
-            val_loss = val_avg_loss_sum / val_batch_cnt
+            val_loss1 = val_avg_loss1_sum / val_batch_cnt
+            val_loss2 = val_avg_loss2_sum / val_batch_cnt
 
             throttle = throttle.detach().cpu().numpy()
+            steer = steer.detach().cpu().numpy()
             brake = brake.detach().cpu().numpy()
 
-            print("%s prediction action: " % name_bk[0], throttle, brake)
-            log_info = "[Epoch: %d/%d] [Validation Average Loss: %f]" % (epoch, args.epochs, val_loss.item())
+            print("%s prediction action: " % name_bk[0], throttle, steer, brake)
+            log_info = "[Epoch: %d/%d] [Validation Average Loss: %f, %f]" % (epoch, args.epochs, val_loss1.item(), val_loss2.item())
             print(log_info) 
 
 
@@ -148,7 +163,7 @@ def main():
         actionM_save_path = os.path.join(ACTION_MODEL_PATH, actionM_name) 
 
         if epoch % 10 == 0:
-            torch.save(tb_model.state_dict(), actionM_save_path)
+            torch.save(action_model.state_dict(), actionM_save_path)
 
 if __name__ == "__main__":
     main()
