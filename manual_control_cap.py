@@ -264,6 +264,7 @@ class World(object):
                 sys.exit(1)
             spawn_points = self.map.get_spawn_points()
             spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
+            print("Spawn point: ", spawn_point)
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
             self.modify_vehicle_physics(self.player)
             global ego_vehicle
@@ -1224,13 +1225,20 @@ def game_loop(args):
         time.sleep(0.6)
 
         def predict(sensor_list, control_queue):
-            from fusion import ActionPredModel 
+            from fusion import ThrottleBrakePredModel, SteerPredModel
             from config import data_transform, BATCH_SIZE, THREED_CHANNEL
 
-            action_model = ActionPredModel()
-            action_model.load_state_dict(torch.load('./checkpoints/action.pth'))
-            action_model.cuda()
-            action_model.eval()
+            tb_model = ThrottleBrakePredModel()
+            st_model = SteerPredModel()
+
+            tb_model.load_state_dict(torch.load('./checkpoints/tb_action.pth'))
+            st_model.load_state_dict(torch.load('./checkpoints/st_action.pth'))
+            
+            tb_model.cuda()
+            st_model.cuda()
+
+            tb_model.eval()
+            st_model.eval()
 
             current_lights = carla.VehicleLightState.NONE
             global is_start
@@ -1241,7 +1249,7 @@ def game_loop(args):
             rgb_3d = None
             while True:
                 if is_il_control and not global_quit:
-                    start = time.clock()
+                    #start = time.clock()
                     for i in sensor_list:
                         s_frame = control_queue.get(True, 1.0)
                         sensor_data = s_frame[0]
@@ -1263,25 +1271,28 @@ def game_loop(args):
                     #throttle, steer, brake, reverse = action_model(rgb, lidar)
                     if rgb_3d is None:
                         print(rgb.shape)
-                        rgb_3d = rgb.repeat(BATCH_SIZE, 1, 1, 1)
+                        rgb_3d = rgb.repeat(THREED_CHANNEL, 1, 1, 1)
                         print(rgb_3d.shape)
                     else:
-                        rgb_3d[0:BATCH_SIZE-1, :, :, :] = rgb_3d.clone()[1:BATCH_SIZE, :, :, :]
+                        rgb_3d[0:THREED_CHANNEL-1, :, :, :] = rgb_3d.clone()[1:THREED_CHANNEL, :, :, :]
                         rgb_3d[-1, :, :, :] = rgb
                     shape = rgb_3d.shape
                     rgb_3dr = rgb_3d.reshape([shape[0] // THREED_CHANNEL, shape[1], THREED_CHANNEL, shape[2], shape[3]])
 
-                    output = action_model(rgb_3d, rgb_3dr)
-                    end = time.clock()
-                    throttle, steer, brake = output[-1, 0], output[-1, 1], output[-1, 2]
-                    print("Prediction time: ", end - start)
+                    output_tb = tb_model(rgb)
+                    output_st = st_model(rgb_3dr)
+
+                    throttle, steer, brake = output_tb[0, 0], output_st[-1, 0], output_tb[0, 1]
+
+                    #end = time.clock()
+                    #print("Prediction time: ", end - start)
 
                     throttle = float(throttle.detach().cpu().numpy())
                     throttle = 0.0 if throttle < 0.0 else throttle
                     
                     steer = float(steer.detach().cpu().numpy())
-                    #steer = 2.0 * steer - 1.0
-                    #steer = 0.0 if abs(steer) < 0.1 else steer
+                    steer = 2.0 * steer - 1.0
+                    steer = 0.0 if abs(steer) < 0.1 else steer
 
                     brake = float(brake.detach().cpu().numpy())
                     brake = brake if brake > 0.6 else 0.0

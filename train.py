@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 import imgaug as ia
 import imgaug.augmenters as iaa
 
-from fusion import ActionPredModel 
+from fusion import ThrottleBrakePredModel, SteerPredModel
 from dataloader import LidarData, ImgData, ActionData 
 from config import *
 
@@ -84,14 +84,17 @@ def main():
             num_workers=0,
             drop_last=True)
 
-    action_model = ActionPredModel()
-    action_model.to(device)
+    tb_model = ThrottleBrakePredModel()
+    st_model = SteerPredModel()
+    tb_model.to(device)
+    st_model.to(device)
 
-    parameters = action_model.parameters()
+    parameters = list(tb_model.parameters()) + list(st_model.parameters())
     optim = torch.optim.Adam(parameters, lr=args.lr, betas=(args.b1, args.b2), weight_decay=1e-4)
 
     for epoch in range(args.epochs):
-        action_model.train()
+        tb_model.train()
+        st_model.train()
 
         avg_loss1_sum = 0.0
         avg_loss2_sum = 0.0
@@ -101,14 +104,23 @@ def main():
             #lidars = lidar_dataset.getitems(name)
 
             optim.zero_grad()
+
             imgs_cuda = imgs.to(device)
             shape = imgs_cuda.shape
+            imgs_cuda_3d = imgs_cuda.reshape([shape[0] // THREED_CHANNEL, shape[1], THREED_CHANNEL, shape[2], shape[3]])
 
-            output = action_model(imgs_cuda, imgs_cuda.reshape([shape[0] // THREED_CHANNEL, shape[1], THREED_CHANNEL, shape[2], shape[3]]))
-            avg_loss1 = mse_loss(output[:, 0:3:2], action[:, 0:3:2])
-            avg_loss2 = mse_loss(output[:, 1], action[:, 1])
+            output_tb = tb_model(imgs_cuda)
+            output_st = st_model(imgs_cuda_3d)
+            print(output_st)
+            avg_loss1 = mse_loss(output_tb, action[:, 0:3:2].reshape([BATCH_SIZE, -1]))
+            
+            steer = (action[:, 1] + 1.0) / 2.0
 
-            avg_loss1.backward(retain_graph=True)
+            steer = steer.reshape([BATCH_SIZE // THREED_CHANNEL, THREED_CHANNEL, -1])
+            avg_steer = torch.mean(steer, dim=1)
+            avg_loss2 = mse_loss(output_st, avg_steer)
+
+            avg_loss1.backward()
             avg_loss2.backward()
             optim.step()
             avg_loss1_sum += avg_loss1
@@ -121,9 +133,9 @@ def main():
         log_info = "[Epoch: %d/%d] [Training Average Loss: %f, %f]" % (epoch, args.epochs, loss1.item(), loss2.item())
         print(log_info) 
 
-        #if epoch % 5 == 0:
-        if False:
-            action_model.eval()
+        if False and epoch % 5 == 0:
+            tb_model.eval()
+            st_model.eval()
             val_batch_cnt = 0
             val_avg_loss1_sum = 0.0
             val_avg_loss2_sum = 0.0
@@ -136,12 +148,16 @@ def main():
 
                 imgs_cuda = imgs.to(device)
                 shape = imgs_cuda.shape
+                imgs_cuda_3d = imgs_cuda.reshape([shape[0] // THREED_CHANNEL, shape[1], THREED_CHANNEL, shape[2], shape[3]])
 
-                output = action_model(imgs_cuda, imgs_cuda.reshape([shape[0] // THREED_CHANNEL, shape[1], THREED_CHANNEL, shape[2], shape[3]]))
-                throttle, steer, brake = output[0, 0], output[0, 1], output[0, 2]
+                output_tb = tb_model(imgs_cuda)
+                output_st = st_model(imgs_cuda_3d)
 
-                avg_loss1 = mse_loss(output[:, 0:3:2], action[:, 0:3:2])
-                avg_loss2 = mse_loss(output[:, 1], action[:, 1])
+                throttle, steer, brake = output_tb[0, 0], output_st[0, 0], output_tb[0, 1]
+
+                avg_loss1 = mse_loss(output_tb, action[:, 0:3:2].reshape([BATCH_SIZE, -1]))
+                avg_loss2 = mse_loss(output_st, action[:, 1].reshape([BATCH_SIZE, -1]))
+
                 val_avg_loss1_sum += avg_loss1
                 val_avg_loss2_sum += avg_loss2
                 val_batch_cnt += 1
@@ -158,12 +174,15 @@ def main():
             print(log_info) 
 
 
-        actionM_name = "Epoch_%d_action.pth" % (epoch)
+        tb_name = "Epoch_%d_tb.pth" % (epoch)
+        st_name = "Epoch_%d_st.pth" % (epoch)
 
-        actionM_save_path = os.path.join(ACTION_MODEL_PATH, actionM_name) 
+        tb_save_path = os.path.join(ACTION_MODEL_PATH, tb_name) 
+        st_save_path = os.path.join(ACTION_MODEL_PATH, st_name) 
 
-        if epoch % 10 == 0:
-            torch.save(action_model.state_dict(), actionM_save_path)
+        if epoch % 5 == 0:
+            torch.save(tb_model.state_dict(), tb_save_path)
+            torch.save(st_model.state_dict(), st_save_path)
 
 if __name__ == "__main__":
     main()

@@ -3,7 +3,7 @@ from torchvision import transforms
 
 DEFAULT_GPU=0
 BATCH_SIZE=32
-THREED_CHANNEL=32
+THREED_CHANNEL=8
 MAX_PT_NUM=8846
 
 RESNET_MODEL_PATH='./checkpoints/resnet/'
