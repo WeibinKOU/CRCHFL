@@ -2,7 +2,7 @@ import torch
 from torchvision import transforms
 
 DEFAULT_GPU=0
-BATCH_SIZE=32
+BATCH_SIZE=16
 THREED_CHANNEL=8
 MAX_PT_NUM=8846
 

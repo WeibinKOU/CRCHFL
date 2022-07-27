@@ -1181,7 +1181,7 @@ def game_loop(args):
         lidar_bp_forward.set_attribute('range',str(10))
         lidar_bp_forward.set_attribute('horizontal_fov',str(120))
         #lidar_bp_forward.set_attribute('sensor_tick', '0.5') #capturing
-        lidar_bp_forward.set_attribute('sensor_tick', '0.9') #test
+        lidar_bp_forward.set_attribute('sensor_tick', '1.5') #test
 
         # Adjust sensors location relative to vehicle
         cam_location = carla.Location(1.5,0,1.5)
@@ -1198,9 +1198,9 @@ def game_loop(args):
         sensor_list.append(camera_sensor)
 
 
-        #lidar_forward_sensor = world_.spawn_actor(lidar_bp_forward, lidar_forward_spawn_point, attach_to=ego_vehicle, attachment_type=carla.AttachmentType.Rigid)
-        #lidar_forward_sensor.listen(lambda point_cloud: sensor_callback(point_cloud, sensor_queue, control_queue, "lidar_forward"))
-        #sensor_list.append(lidar_forward_sensor)
+        lidar_forward_sensor = world_.spawn_actor(lidar_bp_forward, lidar_forward_spawn_point, attach_to=ego_vehicle, attachment_type=carla.AttachmentType.Rigid)
+        lidar_forward_sensor.listen(lambda point_cloud: sensor_callback(point_cloud, sensor_queue, control_queue, "lidar_forward"))
+        sensor_list.append(lidar_forward_sensor)
 
         clock = pygame.time.Clock()
 
@@ -1247,9 +1247,10 @@ def game_loop(args):
             current_lights = carla.VehicleLightState.NONE
             global is_start
             is_start = True
-            time.sleep(1)
+            time.sleep(3)
             rgb = None
             lidar = None
+            ca_sen_frame = 0
             while True:
                 if is_il_control and not global_quit:
                     start = time.clock()
@@ -1259,11 +1260,13 @@ def game_loop(args):
                         sensor_frame = s_frame[1]
                         sensor_name = s_frame[2]
                         if 'lidar_forward' in sensor_name:
+                            #if abs(sensor_frame - ca_sen_frame) < 2:
                             lidar = np.array(np.frombuffer(sensor_data.raw_data, dtype=np.float32).copy().reshape([-1, 4])[:, :3])
                             lidar = Tensor(lidar)
                             lidar = lidar[None].permute(0, 2, 1)
 
                         if 'camera' in sensor_name:
+                            ca_sen_frame = sensor_frame
                             raw_img = np.frombuffer(sensor_data.raw_data, dtype=np.dtype("uint8")).copy()
                             img = np.reshape(raw_img, (sensor_data.height, sensor_data.width, 4))
                             rgb = img[:, :, :3]
@@ -1274,8 +1277,8 @@ def game_loop(args):
                     #throttle, steer, brake, reverse = action_model(rgb, lidar)
 
                     output_throttle = throttle_model(rgb)
-                    output_steer = steer_model(rgb)
-                    output_brake = brake_model(rgb)
+                    output_steer = steer_model(rgb, lidar)
+                    output_brake = brake_model(rgb, lidar)
 
                     throttle, steer, brake = output_throttle[0], output_steer[0], output_brake[0]
 

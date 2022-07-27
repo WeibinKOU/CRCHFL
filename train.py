@@ -104,15 +104,15 @@ def main():
         batch_cnt = 0
         for name, imgs in tqdm(img_dataloader):
             action = action_dataset.getitems(name)[:, 0:3]
-            #lidars = lidar_dataset.getitems(name)
+            lidars = lidar_dataset.getitems(name)
 
             optim.zero_grad()
 
             imgs = imgs.to(device)
 
             output_throttle = throttle_model(imgs)
-            output_steer = steer_model(imgs)
-            output_brake = brake_model(imgs)
+            output_steer = steer_model(imgs, lidars)
+            output_brake = brake_model(imgs, lidars)
 
             avg_loss1 = mse_loss(output_throttle, action[:, 0].reshape([BATCH_SIZE, -1]))
             avg_loss2 = mse_loss(output_steer, action[:, 1].reshape([BATCH_SIZE, -1]))
@@ -149,13 +149,13 @@ def main():
             for name, imgs in tqdm(val_dataloader):
                 name_bk = name
                 action = action_dataset.getitems(name)[:, 0:3]
-                #lidars = val_lidar_dataset.getitems(name)
+                lidars = val_lidar_dataset.getitems(name)
 
                 imgs = imgs.to(device)
 
                 output_throttle = throttle_model(imgs)
-                output_steer = steer_model(imgs)
-                output_brake = brake_model(imgs)
+                output_steer = steer_model(imgs, lidars)
+                output_brake = brake_model(imgs, lidars)
 
                 avg_loss1 = mse_loss(output_throttle, action[:, 0].reshape([BATCH_SIZE, -1]))
                 avg_loss2 = mse_loss(output_steer, action[:, 1].reshape([BATCH_SIZE, -1]))

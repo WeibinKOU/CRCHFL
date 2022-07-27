@@ -72,9 +72,10 @@ class BrakePredModel(nn.Module):
     def __init__(self):
         super(BrakePredModel, self).__init__()
         self.ImgFeatExtractor = ImgFeatExtractor_2D()
+        self.pointnet = PointNet()
 
         self.fc = nn.Sequential(
-                nn.Linear(24576, 512),
+                nn.Linear(24576+1024, 512),
                 nn.BatchNorm1d(512),
                 nn.ReLU(),
 
@@ -90,15 +91,18 @@ class BrakePredModel(nn.Module):
                 nn.ReLU()
                 )
 
-    def forward(self, x_img):
+    def forward(self, x_img, x_pts):
         x = self.ImgFeatExtractor(x_img)
-        x = self.fc(x)
+        y, _, _ = self.pointnet(x_pts)
+        z =torch.cat((x, y), dim=1)
+        z = self.fc(z)
 
-        return x
+        return z
 
 class SteerPredModel(nn.Module):
     def __init__(self):
         super(SteerPredModel, self).__init__()
+        self.pointnet = PointNet()
 
         self.seq = nn.Sequential(
                 nn.Conv2d(3, 24, 5, 2),
@@ -120,7 +124,7 @@ class SteerPredModel(nn.Module):
                 )
 
         self.fc = nn.Sequential(
-                nn.Linear(247616, 100),
+                nn.Linear(247616+1024, 100),
                 nn.ReLU(),
 
                 nn.Linear(100, 50),
@@ -132,9 +136,11 @@ class SteerPredModel(nn.Module):
                 nn.Linear(10, 1),
                 )
 
-    def forward(self, x_vol):
-        x = self.seq(x_vol)
-        x = x.reshape([x_vol.shape[0], -1])
-        x = self.fc(x)
+    def forward(self, x_img, x_pts):
+        x = self.seq(x_img)
+        x = x.reshape([x_img.shape[0], -1])
+        y, _, _ = self.pointnet(x_pts)
+        z = torch.cat((x, y), dim=1)
+        z = self.fc(z)
 
-        return x
+        return z
