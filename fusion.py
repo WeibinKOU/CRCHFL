@@ -40,36 +40,9 @@ class ImgFeatExtractor_2D(nn.Module):
 
         return x
 
-class ImgFeatExtractor_3D(nn.Module):
+class ThrottlePredModel(nn.Module):
     def __init__(self):
-        super(ImgFeatExtractor_3D, self).__init__()
-        self.feat_extractor = nn.Sequential(
-                nn.Conv3d(3, 32, (2, 5, 5), (1, 3, 3)),
-                nn.BatchNorm3d(32), 
-                nn.LeakyReLU(0.1),
-                nn.MaxPool3d(3, 1),
-
-                nn.Conv3d(32, 64, (2, 3, 3), (1, 2, 2)),
-                nn.BatchNorm3d(64), 
-                nn.LeakyReLU(0.1),
-                nn.MaxPool3d((2, 5, 5), (1, 2, 2)),
-
-                nn.Dropout(0.3),
-
-                nn.Conv3d(64, 128, (2, 2, 2), 1),
-                nn.BatchNorm3d(128), 
-                nn.LeakyReLU(0.1),
-                nn.MaxPool3d((2, 5, 5), (1, 2, 2)),
-                )
-
-    def forward(self, x_vol):
-        x = self.feat_extractor(x_vol)
-        x = x.reshape([x_vol.shape[0], -1])
-        return x
-
-class ThrottleBrakePredModel(nn.Module):
-    def __init__(self):
-        super(ThrottleBrakePredModel, self).__init__()
+        super(ThrottlePredModel, self).__init__()
         self.ImgFeatExtractor = ImgFeatExtractor_2D()
 
         self.fc = nn.Sequential(
@@ -85,7 +58,35 @@ class ThrottleBrakePredModel(nn.Module):
                 nn.BatchNorm1d(64),
                 nn.ReLU(),
 
-                nn.Linear(64, 2),
+                nn.Linear(64, 1),
+                nn.ReLU()
+                )
+
+    def forward(self, x_img):
+        x = self.ImgFeatExtractor(x_img)
+        x = self.fc(x)
+
+        return x
+
+class BrakePredModel(nn.Module):
+    def __init__(self):
+        super(BrakePredModel, self).__init__()
+        self.ImgFeatExtractor = ImgFeatExtractor_2D()
+
+        self.fc = nn.Sequential(
+                nn.Linear(24576, 512),
+                nn.BatchNorm1d(512),
+                nn.ReLU(),
+
+                nn.Linear(512, 128),
+                nn.BatchNorm1d(128),
+                nn.ReLU(),
+                
+                nn.Linear(128, 64),
+                nn.BatchNorm1d(64),
+                nn.ReLU(),
+
+                nn.Linear(64, 1),
                 nn.ReLU()
                 )
 
@@ -98,27 +99,42 @@ class ThrottleBrakePredModel(nn.Module):
 class SteerPredModel(nn.Module):
     def __init__(self):
         super(SteerPredModel, self).__init__()
-        self.VolFeatExtractor = ImgFeatExtractor_3D()
 
-        self.vfc = nn.Sequential(
-                nn.Linear(47104, 256),
-                nn.BatchNorm1d(256),
-                nn.LeakyReLU(0.1),
+        self.seq = nn.Sequential(
+                nn.Conv2d(3, 24, 5, 2),
+                nn.ReLU(),
 
-                nn.Linear(256, 128),
-                nn.BatchNorm1d(128),
-                nn.LeakyReLU(0.1),
-
-                nn.Linear(128, 64),
-                nn.BatchNorm1d(64),
-                nn.LeakyReLU(0.1),
+                nn.Conv2d(24, 36, 5, 2),
+                nn.ReLU(),
                 
-                nn.Linear(64, 1),
-                nn.Tanh()
+                nn.Conv2d(36, 48, 5, 2),
+                nn.ReLU(),
+
+                nn.Conv2d(48, 64, 3, 1),
+                nn.ReLU(),
+
+                nn.Conv2d(64, 64, 3, 1),
+                nn.ReLU(),
+                
+                nn.Dropout(0.5)
+                )
+
+        self.fc = nn.Sequential(
+                nn.Linear(247616, 100),
+                nn.ReLU(),
+
+                nn.Linear(100, 50),
+                nn.ReLU(),
+
+                nn.Linear(50, 10),
+                nn.ReLU(),
+                
+                nn.Linear(10, 1),
                 )
 
     def forward(self, x_vol):
-        x = self.VolFeatExtractor(x_vol)
-        x = self.vfc(x)
+        x = self.seq(x_vol)
+        x = x.reshape([x_vol.shape[0], -1])
+        x = self.fc(x)
 
         return x

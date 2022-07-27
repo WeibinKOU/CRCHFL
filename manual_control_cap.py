@@ -263,8 +263,8 @@ class World(object):
                 print('Please add some Vehicle Spawn Point to your UE4 scene.')
                 sys.exit(1)
             spawn_points = self.map.get_spawn_points()
-            spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
-            print("Spawn point: ", spawn_point)
+            #spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
+            spawn_point = carla.Transform(carla.Location(x=300.705978, y=133.239975, z=0.300000), carla.Rotation(pitch=0.000000, yaw=-0.000092, roll=0.000000))
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
             self.modify_vehicle_physics(self.player)
             global ego_vehicle
@@ -1173,7 +1173,7 @@ def game_loop(args):
         camera_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
         camera_bp.set_attribute('fov', '120')
         #camera_bp.set_attribute('sensor_tick', '0.5') #capturing
-        camera_bp.set_attribute('sensor_tick', '0.9') #test
+        camera_bp.set_attribute('sensor_tick', '1.5') #test
 
         lidar_bp_forward.set_attribute('channels',str(64))
         lidar_bp_forward.set_attribute('points_per_second',str(90000))
@@ -1225,20 +1225,24 @@ def game_loop(args):
         time.sleep(0.6)
 
         def predict(sensor_list, control_queue):
-            from fusion import ThrottleBrakePredModel, SteerPredModel
+            from fusion import ThrottlePredModel, BrakePredModel, SteerPredModel
             from config import data_transform, BATCH_SIZE, THREED_CHANNEL
 
-            tb_model = ThrottleBrakePredModel()
-            st_model = SteerPredModel()
+            throttle_model = ThrottlePredModel()
+            steer_model = SteerPredModel()
+            brake_model = BrakePredModel()
 
-            tb_model.load_state_dict(torch.load('./checkpoints/tb_action.pth'))
-            st_model.load_state_dict(torch.load('./checkpoints/st_action.pth'))
+            throttle_model.load_state_dict(torch.load('./checkpoints/throttle_action.pth'))
+            steer_model.load_state_dict(torch.load('./checkpoints/steer_action.pth'))
+            brake_model.load_state_dict(torch.load('./checkpoints/brake_action.pth'))
             
-            tb_model.cuda()
-            st_model.cuda()
+            throttle_model.cuda()
+            steer_model.cuda()
+            brake_model.cuda()
 
-            tb_model.eval()
-            st_model.eval()
+            throttle_model.eval()
+            steer_model.eval()
+            brake_model.eval()
 
             current_lights = carla.VehicleLightState.NONE
             global is_start
@@ -1246,10 +1250,9 @@ def game_loop(args):
             time.sleep(1)
             rgb = None
             lidar = None
-            rgb_3d = None
             while True:
                 if is_il_control and not global_quit:
-                    #start = time.clock()
+                    start = time.clock()
                     for i in sensor_list:
                         s_frame = control_queue.get(True, 1.0)
                         sensor_data = s_frame[0]
@@ -1269,29 +1272,21 @@ def game_loop(args):
                             rgb = rgb[None].cuda()
 
                     #throttle, steer, brake, reverse = action_model(rgb, lidar)
-                    if rgb_3d is None:
-                        print(rgb.shape)
-                        rgb_3d = rgb.repeat(THREED_CHANNEL, 1, 1, 1)
-                        print(rgb_3d.shape)
-                    else:
-                        rgb_3d[0:THREED_CHANNEL-1, :, :, :] = rgb_3d.clone()[1:THREED_CHANNEL, :, :, :]
-                        rgb_3d[-1, :, :, :] = rgb
-                    shape = rgb_3d.shape
-                    rgb_3dr = rgb_3d.reshape([shape[0] // THREED_CHANNEL, shape[1], THREED_CHANNEL, shape[2], shape[3]])
 
-                    output_tb = tb_model(rgb)
-                    output_st = st_model(rgb_3dr)
+                    output_throttle = throttle_model(rgb)
+                    output_steer = steer_model(rgb)
+                    output_brake = brake_model(rgb)
 
-                    throttle, steer, brake = output_tb[0, 0], output_st[-1, 0], output_tb[0, 1]
+                    throttle, steer, brake = output_throttle[0], output_steer[0], output_brake[0]
 
-                    #end = time.clock()
-                    #print("Prediction time: ", end - start)
+                    end = time.clock()
+                    print("Prediction time: ", end - start)
 
                     throttle = float(throttle.detach().cpu().numpy())
                     throttle = 0.0 if throttle < 0.0 else throttle
                     
                     steer = float(steer.detach().cpu().numpy())
-                    steer = 2.0 * steer - 1.0
+                    #steer = 2.0 * steer - 1.0
                     steer = 0.0 if abs(steer) < 0.1 else steer
 
                     brake = float(brake.detach().cpu().numpy())
