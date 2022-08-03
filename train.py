@@ -4,13 +4,16 @@ import numpy as np
 import math
 import torch.nn as nn
 import torch
+import torchvision
 from tqdm import tqdm
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 import imgaug as ia
 import imgaug.augmenters as iaa
+from utils.one_hot import label2onehot
 
 from fusion import ThrottlePredModel, BrakePredModel, SteerPredModel
-from dataloader import LidarData, ImgData, ActionData 
+from dataloader import LidarData, ImgData, ActionData, MultiImgData
 from config import *
 
 np.random.seed(0)
@@ -31,7 +34,7 @@ def build_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--epochs", type=int, default=500, help="number of epochs of training")
     parser.add_argument("--batch_size", type=int, default=BATCH_SIZE, help="size of the batches")
-    parser.add_argument("--lr", type=float, default=0.0005, help="adam: learning rate")
+    parser.add_argument("--lr", type=float, default=0.005, help="adam: learning rate")
     parser.add_argument("--b1", type=float, default=0.9, help="adam: decay of first order momentum of gradient")
     parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of second order momentum of gradient")
     parser.add_argument("--gpu", type=int, default=0, help="the index of GPU used to train")
@@ -39,161 +42,120 @@ def build_parser():
     return args
 
 def main():
+    tb = SummaryWriter()
     args = build_parser()
 
     mse_loss = nn.MSELoss().to(device)
+    l1_loss = nn.L1Loss().to(device)
+    mce_loss = nn.CrossEntropyLoss().to(device)
+    bce_loss = nn.BCELoss().to(device)
+
+    softmax = nn.Softmax(dim=1)
+
     aug_seq = iaa.Sequential([
         #iaa.Fliplr(.5),
 
         iaa.Affine(
             translate_percent={'x': (-.05, .05), 'y': (-.1, .1)},
-            rotate=(-25, 25)
+            rotate=(-15, 15)
         ),
 
         iaa.GammaContrast((.4, 2.5)),
         iaa.GaussianBlur((0, 3.0)),
 
-        iaa.Resize({'height': 480, 'width': 640}),
+        iaa.Resize({'height': HEIGHT, 'width': WIDTH}),
     ])
 
     print("\nData loading ...\n")
 
-    img_dataset = ImgData("../code/dataset/images/", aug_seq, data_transform)
-    val_dataset = ImgData("../code/dataset/valid/images/", aug_seq, data_transform)
-    lidar_dataset = LidarData("../code/dataset/lidars/")
-    val_lidar_dataset = LidarData("../code/dataset/valid/lidars/")
-    action_dataset = ActionData("../code/dataset/action.npy")
-
-    #img_dataset = ImgData("./dataset/images/", aug_seq, data_transform)
-    #val_dataset = ImgData("./dataset/valid/images/", aug_seq, data_transform)
-    #lidar_dataset = LidarData("./dataset/lidars/")
-    #val_lidar_dataset = LidarData("./dataset/valid/lidars/")
-    #action_dataset = ActionData("./dataset/action.npy")
+    img_dataset = MultiImgData("./dataset/adj_pitch/balanced/", None, data_transform)
+    train_action = ActionData("./dataset/adj_pitch/balanced/cla_action.npy")
 
     img_dataloader = DataLoader(img_dataset, 
             batch_size=args.batch_size,
-            shuffle=False,
+            shuffle=True,
             num_workers=0,
             drop_last=True)
 
-    val_dataloader = DataLoader(val_dataset, 
-            batch_size=args.batch_size,
-            shuffle=False,
-            num_workers=0,
-            drop_last=True)
-
-    throttle_model = ThrottlePredModel()
     steer_model = SteerPredModel()
-    brake_model = BrakePredModel()
 
-    throttle_model.to(device)
     steer_model.to(device)
-    brake_model.to(device)
 
-    parameters = list(throttle_model.parameters()) + list(brake_model.parameters()) + list(steer_model.parameters())
+    parameters = steer_model.parameters()
     optim = torch.optim.Adam(parameters, lr=args.lr, betas=(args.b1, args.b2), weight_decay=1e-4)
 
+
+    images_f = torch.rand([BATCH_SIZE, 3, HEIGHT, WIDTH], dtype=torch.float32).to(device)
+    images_l = torch.rand([BATCH_SIZE, 3, HEIGHT, WIDTH], dtype=torch.float32).to(device)
+    images_r = torch.rand([BATCH_SIZE, 3, HEIGHT, WIDTH], dtype=torch.float32).to(device)
+
+    tb.add_graph(steer_model, (images_f, images_l, images_r))
+
     for epoch in range(args.epochs):
-        throttle_model.train()
-        brake_model.train()
         steer_model.train()
 
-        avg_loss1_sum = 0.0
         avg_loss2_sum = 0.0
-        avg_loss3_sum = 0.0
         batch_cnt = 0
-        for name, imgs in tqdm(img_dataloader):
-            action = action_dataset.getitems(name)[:, 0:3]
-            lidars = lidar_dataset.getitems(name)
+        for name, imgs_f, imgs_l, imgs_r in tqdm(img_dataloader):
+            action = train_action.getitems(name)[:, 0:3]
 
             optim.zero_grad()
 
-            imgs = imgs.to(device)
+            imgs_f = imgs_f.to(device)
+            imgs_l = imgs_l.to(device)
+            imgs_r = imgs_r.to(device)
 
-            output_throttle = throttle_model(imgs)
-            output_steer = steer_model(imgs, lidars)
-            output_brake = brake_model(imgs, lidars)
+            output_steer, feat = steer_model(imgs_f, imgs_l, imgs_r)
+            out_steer = output_steer
 
-            avg_loss1 = mse_loss(output_throttle, action[:, 0].reshape([BATCH_SIZE, -1]))
-            avg_loss2 = mse_loss(output_steer, action[:, 1].reshape([BATCH_SIZE, -1]))
-            avg_loss3 = mse_loss(output_brake, action[:, 2].reshape([BATCH_SIZE, -1]))
+            steer = action[:, 1].reshape([BATCH_SIZE, -1])
+            label = steer.squeeze()
 
-            avg_loss1.backward()
+            steer = Tensor(label2onehot(steer, 3))
+            avg_loss2 = mce_loss(output_steer, steer)
+
             avg_loss2.backward()
-            avg_loss3.backward()
             optim.step()
-            avg_loss1_sum += avg_loss1
+
             avg_loss2_sum += avg_loss2
-            avg_loss3_sum += avg_loss3
             batch_cnt += 1
 
-        loss1 = avg_loss1_sum / batch_cnt
+            p = torch.cat((softmax(out_steer), steer), dim=1)
+            print(p)
+
+            #tb.add_embedding(mat=feat, metadata=label, label_img=imgs_f, global_step=30)
+
         loss2 = avg_loss2_sum / batch_cnt
-        loss3 = avg_loss3_sum / batch_cnt
-            
-        log_info = "[Epoch: %d/%d] [Training Average Loss: %f, %f, %f]" % (epoch, args.epochs, loss1.item(), loss2.item(), loss3.item())
-        print(log_info) 
 
-        if False and epoch % 5 == 0:
-            throttle_model.eval()
-            steer_model.eval()
-            brake_model.eval()
+        log_info = "[Epoch: %d/%d] [Training Average Loss: %f]" % (epoch, args.epochs, loss2.item())
+        print(log_info)
 
-            val_batch_cnt = 0
-            val_avg_loss1_sum = 0.0
-            val_avg_loss2_sum = 0.0
-            val_avg_loss3_sum = 0.0
-            name_bk = None
-            throttle, steer, brake, reverse = None, None, None, None
+        tb.add_scalar('Loss', loss2, epoch)
 
-            for name, imgs in tqdm(val_dataloader):
-                name_bk = name
-                action = action_dataset.getitems(name)[:, 0:3]
-                lidars = val_lidar_dataset.getitems(name)
+        tb.add_histogram('img_f.conv1.weight', steer_model.img_f.conv1.weight, epoch)
+        tb.add_histogram('img_f.conv1.bias', steer_model.img_f.conv1.bias, epoch)
+        tb.add_histogram('img_f.conv1.weight.grad' ,steer_model.img_f.conv1.weight.grad ,epoch)
 
-                imgs = imgs.to(device)
+        tb.add_histogram('img_l.conv1.weight', steer_model.img_l.conv1.weight, epoch)
+        tb.add_histogram('img_l.conv1.bias', steer_model.img_f.conv1.bias, epoch)
+        tb.add_histogram('img_l.conv1.weight.grad' ,steer_model.img_l.conv1.weight.grad ,epoch)
 
-                output_throttle = throttle_model(imgs)
-                output_steer = steer_model(imgs, lidars)
-                output_brake = brake_model(imgs, lidars)
+        tb.add_histogram('img_r.conv1.weight', steer_model.img_r.conv1.weight, epoch)
+        tb.add_histogram('img_r.conv1.bias', steer_model.img_r.conv1.bias, epoch)
+        tb.add_histogram('img_r.conv1.weight.grad' ,steer_model.img_r.conv1.weight.grad ,epoch)
 
-                avg_loss1 = mse_loss(output_throttle, action[:, 0].reshape([BATCH_SIZE, -1]))
-                avg_loss2 = mse_loss(output_steer, action[:, 1].reshape([BATCH_SIZE, -1]))
-                avg_loss3 = mse_loss(output_brake, action[:, 2].reshape([BATCH_SIZE, -1]))
+        tb.add_histogram('fc.linear1.weight', steer_model.fc.linear1.weight, epoch)
+        tb.add_histogram('fc.linear1.bias', steer_model.fc.linear1.bias, epoch)
+        tb.add_histogram('fc.linear1.weight.grad' ,steer_model.fc.linear1.weight.grad ,epoch)
 
-                throttle, steer, brake = output_throttle[0], output_steer[0], output_brake[0]
-
-                val_avg_loss1_sum += avg_loss1
-                val_avg_loss2_sum += avg_loss2
-                val_avg_loss3_sum += avg_loss3
-                val_batch_cnt += 1
-
-            val_loss1 = val_avg_loss1_sum / val_batch_cnt
-            val_loss2 = val_avg_loss2_sum / val_batch_cnt
-            val_loss3 = val_avg_loss3_sum / val_batch_cnt
-
-            throttle = throttle.detach().cpu().numpy()
-            steer = steer.detach().cpu().numpy()
-            brake = brake.detach().cpu().numpy()
-
-            print("%s prediction action: " % name_bk[0], throttle, steer, brake)
-            log_info = "[Epoch: %d/%d] [Validation Average Loss: %f, %f, %f]" % (epoch, args.epochs, val_loss1.item(), val_loss2.item(), val_loss3.item())
-            print(log_info) 
-
-
-        throttle_name = "Epoch_%d_throttle.pth" % (epoch)
         steer_name = "Epoch_%d_steer.pth" % (epoch)
-        brake_name = "Epoch_%d_brake.pth" % (epoch)
 
-        throttle_save_path = os.path.join(ACTION_MODEL_PATH, throttle_name) 
         steer_save_path = os.path.join(ACTION_MODEL_PATH, steer_name) 
-        brake_save_path = os.path.join(ACTION_MODEL_PATH, brake_name) 
 
         if epoch % 5 == 0:
-            torch.save(throttle_model.state_dict(), throttle_save_path)
             torch.save(steer_model.state_dict(), steer_save_path)
-            torch.save(brake_model.state_dict(), brake_save_path)
+
+    tb.close()
 
 if __name__ == "__main__":
     main()
-

@@ -148,12 +148,12 @@ except ImportError:
 # -- Global functions ----------------------------------------------------------
 # ==============================================================================
 
-#IMG_WIDTH = 1280 
-#IMG_HEIGHT = 960 
-IMG_WIDTH = 640 
-IMG_HEIGHT = 480 
+IMG_WIDTH = 1280
+IMG_HEIGHT = 960
+#IMG_WIDTH = 640
+#IMG_HEIGHT = 480
 ego_vehicle = 0
-ego_action = {} 
+ego_action = {}
 global_quit = False
 is_capturing = False
 is_il_control = False
@@ -1163,44 +1163,51 @@ def game_loop(args):
         controller = KeyboardControl(world, args.autopilot)
 
         blueprint_library = world_.get_blueprint_library()
-
         camera_bp = blueprint_library.find('sensor.camera.rgb')
-        lidar_bp_rotation = blueprint_library.find('sensor.lidar.ray_cast')
-        lidar_bp_forward = blueprint_library.find('sensor.lidar.ray_cast')
+        camera_l_bp = blueprint_library.find('sensor.camera.rgb')
+        camera_r_bp = blueprint_library.find('sensor.camera.rgb')
 
         # set the attributes of newly-added blueprints
         camera_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
         camera_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
         camera_bp.set_attribute('fov', '120')
-        #camera_bp.set_attribute('sensor_tick', '0.5') #capturing
-        camera_bp.set_attribute('sensor_tick', '1.5') #test
+        camera_bp.set_attribute('sensor_tick', '1.0')
 
-        lidar_bp_forward.set_attribute('channels',str(64))
-        lidar_bp_forward.set_attribute('points_per_second',str(90000))
-        lidar_bp_forward.set_attribute('rotation_frequency',str(10))
-        lidar_bp_forward.set_attribute('range',str(10))
-        lidar_bp_forward.set_attribute('horizontal_fov',str(120))
-        #lidar_bp_forward.set_attribute('sensor_tick', '0.5') #capturing
-        lidar_bp_forward.set_attribute('sensor_tick', '1.5') #test
+        camera_l_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
+        camera_l_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
+        camera_l_bp.set_attribute('fov', '120')
+        camera_l_bp.set_attribute('sensor_tick', '1.0')
+
+        camera_r_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
+        camera_r_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
+        camera_r_bp.set_attribute('fov', '120')
+        camera_r_bp.set_attribute('sensor_tick', '1.0')
 
         # Adjust sensors location relative to vehicle
-        cam_location = carla.Location(1.5,0,1.5)
-        cam_rotation = carla.Rotation(0,0,0)
+        cam_location = carla.Location(2.5,0,1.5)
+        cam_rotation = carla.Rotation(-50,0,0)
         camera_spawn_point = carla.Transform(cam_location,cam_rotation)
 
-        lidar_forward_location = carla.Location(1.5,0,0.5)
-        lidar_forward_rotation = carla.Rotation(0,0,0)
-        lidar_forward_spawn_point = carla.Transform(lidar_forward_location,lidar_forward_rotation)
+        cam_r_location = carla.Location(1.0, 1.2, 0.5)
+        cam_r_rotation = carla.Rotation(-50,90,0)
+        camera_r_spawn_point = carla.Transform(cam_r_location,cam_r_rotation)
+
+        cam_l_location = carla.Location(1.0,-1.2,0.5)
+        cam_l_rotation = carla.Rotation(-50,-90,0)
+        camera_l_spawn_point = carla.Transform(cam_l_location,cam_l_rotation)
 
         # spawn the sensors and attach them to the vehicle
         camera_sensor = world_.spawn_actor(camera_bp, camera_spawn_point, attach_to=ego_vehicle, attachment_type=carla.AttachmentType.Rigid)
-        camera_sensor.listen(lambda image: sensor_callback(image, sensor_queue, control_queue, "camera"))
+        camera_l_sensor = world_.spawn_actor(camera_l_bp, camera_l_spawn_point, attach_to=ego_vehicle, attachment_type=carla.AttachmentType.Rigid)
+        camera_r_sensor = world_.spawn_actor(camera_r_bp, camera_r_spawn_point, attach_to=ego_vehicle, attachment_type=carla.AttachmentType.Rigid)
+
+        camera_sensor.listen(lambda image: sensor_callback(image, sensor_queue, control_queue, "camera_f"))
+        camera_l_sensor.listen(lambda image: sensor_callback(image, sensor_queue, control_queue, "camera_l"))
+        camera_r_sensor.listen(lambda image: sensor_callback(image, sensor_queue, control_queue, "camera_r"))
+
         sensor_list.append(camera_sensor)
-
-
-        lidar_forward_sensor = world_.spawn_actor(lidar_bp_forward, lidar_forward_spawn_point, attach_to=ego_vehicle, attachment_type=carla.AttachmentType.Rigid)
-        lidar_forward_sensor.listen(lambda point_cloud: sensor_callback(point_cloud, sensor_queue, control_queue, "lidar_forward"))
-        sensor_list.append(lidar_forward_sensor)
+        sensor_list.append(camera_l_sensor)
+        sensor_list.append(camera_r_sensor)
 
         clock = pygame.time.Clock()
 
@@ -1225,29 +1232,24 @@ def game_loop(args):
         time.sleep(0.6)
 
         def predict(sensor_list, control_queue):
-            from fusion import ThrottlePredModel, BrakePredModel, SteerPredModel
-            from config import data_transform, BATCH_SIZE, THREED_CHANNEL
+            from fusion import SteerPredModel
+            from config import data_transform
+            import torch.nn as nn
 
-            throttle_model = ThrottlePredModel()
+            softmax = nn.Softmax(dim=1)
+
             steer_model = SteerPredModel()
-            brake_model = BrakePredModel()
 
-            throttle_model.load_state_dict(torch.load('./checkpoints/throttle_action.pth'))
             steer_model.load_state_dict(torch.load('./checkpoints/steer_action.pth'))
-            brake_model.load_state_dict(torch.load('./checkpoints/brake_action.pth'))
             
-            throttle_model.cuda()
             steer_model.cuda()
-            brake_model.cuda()
 
-            throttle_model.eval()
             steer_model.eval()
-            brake_model.eval()
 
             current_lights = carla.VehicleLightState.NONE
             global is_start
             is_start = True
-            time.sleep(3)
+            time.sleep(2)
             rgb = None
             lidar = None
             ca_sen_frame = 0
@@ -1259,41 +1261,45 @@ def game_loop(args):
                         sensor_data = s_frame[0]
                         sensor_frame = s_frame[1]
                         sensor_name = s_frame[2]
-                        if 'lidar_forward' in sensor_name:
-                            #if abs(sensor_frame - ca_sen_frame) < 2:
-                            lidar = np.array(np.frombuffer(sensor_data.raw_data, dtype=np.float32).copy().reshape([-1, 4])[:, :3])
-                            lidar = Tensor(lidar)
-                            lidar = lidar[None].permute(0, 2, 1)
-
-                        if 'camera' in sensor_name:
-                            ca_sen_frame = sensor_frame
+                        if 'camera_f' in sensor_name:
                             raw_img = np.frombuffer(sensor_data.raw_data, dtype=np.dtype("uint8")).copy()
                             img = np.reshape(raw_img, (sensor_data.height, sensor_data.width, 4))
                             rgb = img[:, :, :3]
-                            #cv2.imwrite("../code/dataset/produce/t01_%010d.png" % sensor_frame, rgb)
+                            #cv2.imwrite("../code/dataset/produce/imgs_f/t01_%010d.png" % sensor_frame, rgb)
+                            rgb[..., [0, 1, 2]] = rgb[..., [2, 1, 0]]
                             rgb = data_transform(rgb)
-                            rgb = rgb[None].cuda()
+                            rgb_f = rgb[None].cuda()
+                        if 'camera_l' in sensor_name:
+                            raw_img = np.frombuffer(sensor_data.raw_data, dtype=np.dtype("uint8")).copy()
+                            img = np.reshape(raw_img, (sensor_data.height, sensor_data.width, 4))
+                            rgb = img[:, :, :3]
+                            #cv2.imwrite("../code/dataset/produce/imgs_l/t01_%010d.png" % sensor_frame, rgb)
+                            rgb[..., [0, 1, 2]] = rgb[..., [2, 1, 0]]
+                            rgb = data_transform(rgb)
+                            rgb_l = rgb[None].cuda()
+                        if 'camera_r' in sensor_name:
+                            raw_img = np.frombuffer(sensor_data.raw_data, dtype=np.dtype("uint8")).copy()
+                            img = np.reshape(raw_img, (sensor_data.height, sensor_data.width, 4))
+                            rgb = img[:, :, :3]
+                            #cv2.imwrite("../code/dataset/produce/imgs_r/t01_%010d.png" % sensor_frame, rgb)
+                            rgb[..., [0, 1, 2]] = rgb[..., [2, 1, 0]]
+                            rgb = data_transform(rgb)
+                            rgb_r = rgb[None].cuda()
 
-                    #throttle, steer, brake, reverse = action_model(rgb, lidar)
+                    output_steer, _ = steer_model(rgb_f, rgb_l, rgb_r)
+                    steer_prob = softmax(output_steer).detach().cpu().numpy().squeeze()
 
-                    output_throttle = throttle_model(rgb)
-                    output_steer = steer_model(rgb, lidar)
-                    output_brake = brake_model(rgb, lidar)
+                    print("Output steer: ", steer_prob)
 
-                    throttle, steer, brake = output_throttle[0], output_steer[0], output_brake[0]
+                    maxidx = np.argmax(steer_prob)
+                    steer = 0 if maxidx == 0 else 0.2 if maxidx == 1 else -0.2
 
                     end = time.clock()
                     print("Prediction time: ", end - start)
 
-                    throttle = float(throttle.detach().cpu().numpy())
-                    throttle = 0.0 if throttle < 0.0 else throttle
-                    
-                    steer = float(steer.detach().cpu().numpy())
-                    #steer = 2.0 * steer - 1.0
-                    steer = 0.0 if abs(steer) < 0.1 else steer
+                    throttle = 0.3 if steer == 0 else 0.15
 
-                    brake = float(brake.detach().cpu().numpy())
-                    brake = brake if brake > 0.6 else 0.0
+                    brake = 0.0
 
                     reverse = False
 
@@ -1301,7 +1307,6 @@ def game_loop(args):
 
                     c.throttle = throttle 
                     c.steer = steer 
-                    #c.steer = 0.0 
                     c.brake = brake
                     c.reverse = reverse 
                     c.hand_brake = False

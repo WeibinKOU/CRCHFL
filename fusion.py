@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-from config import BATCH_SIZE, THREED_CHANNEL
+from collections import OrderedDict
+from config import BATCH_SIZE
 
 from pointnet import PointNetfeat as PointNet
 from resnet50 import ResNet50 
@@ -72,10 +73,9 @@ class BrakePredModel(nn.Module):
     def __init__(self):
         super(BrakePredModel, self).__init__()
         self.ImgFeatExtractor = ImgFeatExtractor_2D()
-        self.pointnet = PointNet()
 
         self.fc = nn.Sequential(
-                nn.Linear(24576+1024, 512),
+                nn.Linear(24576, 512),
                 nn.BatchNorm1d(512),
                 nn.ReLU(),
 
@@ -91,56 +91,94 @@ class BrakePredModel(nn.Module):
                 nn.ReLU()
                 )
 
-    def forward(self, x_img, x_pts):
+    def forward(self, x_img):
         x = self.ImgFeatExtractor(x_img)
-        y, _, _ = self.pointnet(x_pts)
-        z =torch.cat((x, y), dim=1)
-        z = self.fc(z)
+        x = self.fc(x)
 
-        return z
+        return x
 
 class SteerPredModel(nn.Module):
     def __init__(self):
         super(SteerPredModel, self).__init__()
-        self.pointnet = PointNet()
 
-        self.seq = nn.Sequential(
-                nn.Conv2d(3, 24, 5, 2),
-                nn.ReLU(),
+        self.img_f = nn.Sequential(OrderedDict({
+                'conv1' : nn.Conv2d(3, 24, 7, 4),
+                'relu1' : nn.LeakyReLU(0.2),
 
-                nn.Conv2d(24, 36, 5, 2),
-                nn.ReLU(),
-                
-                nn.Conv2d(36, 48, 5, 2),
-                nn.ReLU(),
+                'conv2' : nn.Conv2d(24, 36, 5, 3),
+                'relu2' : nn.LeakyReLU(0.2),
 
-                nn.Conv2d(48, 64, 3, 1),
-                nn.ReLU(),
+                'conv3' : nn.Conv2d(36, 48, 5, 2),
+                'relu3' : nn.LeakyReLU(0.2),
 
-                nn.Conv2d(64, 64, 3, 1),
-                nn.ReLU(),
-                
-                nn.Dropout(0.5)
-                )
+                'conv7' : nn.Conv2d(48, 256, 3, 2),
+                'relu7' : nn.LeakyReLU(0.2),
 
-        self.fc = nn.Sequential(
-                nn.Linear(247616+1024, 100),
-                nn.ReLU(),
+                'conv8' : nn.Conv2d(256, 256, 3, 2),
+                'relu8' : nn.LeakyReLU(0.2),
+                }))
 
-                nn.Linear(100, 50),
-                nn.ReLU(),
+        self.img_l = nn.Sequential(OrderedDict({
+                'conv1' : nn.Conv2d(3, 24, 7, 4),
+                'relu1' : nn.LeakyReLU(0.2),
 
-                nn.Linear(50, 10),
-                nn.ReLU(),
-                
-                nn.Linear(10, 1),
-                )
+                'conv2' : nn.Conv2d(24, 36, 5, 3),
+                'relu2' : nn.LeakyReLU(0.2),
 
-    def forward(self, x_img, x_pts):
-        x = self.seq(x_img)
-        x = x.reshape([x_img.shape[0], -1])
-        y, _, _ = self.pointnet(x_pts)
-        z = torch.cat((x, y), dim=1)
-        z = self.fc(z)
+                'conv3' : nn.Conv2d(36, 48, 5, 2),
+                'relu3' : nn.LeakyReLU(0.2),
 
-        return z
+                'conv7' : nn.Conv2d(48, 256, 3, 2),
+                'relu7' : nn.LeakyReLU(0.2),
+
+                'conv8' : nn.Conv2d(256, 256, 3, 2),
+                'relu8' : nn.LeakyReLU(0.2),
+                }))
+
+        self.img_r = nn.Sequential(OrderedDict({
+                'conv1' : nn.Conv2d(3, 24, 7, 4),
+                'relu1' : nn.LeakyReLU(0.2),
+
+                'conv2' : nn.Conv2d(24, 36, 5, 3),
+                'relu2' : nn.LeakyReLU(0.2),
+
+                'conv3' : nn.Conv2d(36, 48, 5, 2),
+                'relu3' : nn.LeakyReLU(0.2),
+
+                'conv7' : nn.Conv2d(48, 256, 3, 2),
+                'relu7' : nn.LeakyReLU(0.2),
+
+                'conv8' : nn.Conv2d(256, 256, 3, 2),
+                'relu8' : nn.LeakyReLU(0.2),
+                }))
+
+        self.fc = nn.Sequential(OrderedDict({
+                'linear1' : nn.Linear(73728, 512),
+                'relu1' : nn.LeakyReLU(0.2),
+
+                'linear2' : nn.Linear(512, 100),
+                'relu2' : nn.LeakyReLU(0.2),
+
+                'linear3' : nn.Linear(100, 50),
+                'relu3' : nn.LeakyReLU(0.2),
+
+                'linear4' : nn.Linear(50, 10),
+                'relu4' : nn.LeakyReLU(0.2),
+
+                'linear5' : nn.Linear(10, 3),
+                }))
+
+    def forward(self, x_img_f, x_img_l, x_img_r):
+        x = self.img_f(x_img_f)
+        x = x.view(x.size(0), -1)
+
+        y = self.img_l(x_img_l)
+        y = y.view(y.size(0), -1)
+
+        z = self.img_r(x_img_r)
+        z = z.view(z.size(0), -1)
+
+        feat = torch.cat((x, y, z), dim=1)
+        c = self.fc(feat)
+
+        return c, feat
