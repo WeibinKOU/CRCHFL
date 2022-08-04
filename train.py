@@ -77,13 +77,14 @@ def main():
             num_workers=0,
             drop_last=True)
 
+    data_len = len(img_dataloader) * BATCH_SIZE
     steer_model = SteerPredModel()
 
     steer_model.to(device)
 
     parameters = steer_model.parameters()
     optim = torch.optim.Adam(parameters, lr=args.lr, betas=(args.b1, args.b2), weight_decay=1e-4)
-
+    scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=20, gamma=0.1)
 
     images_f = torch.rand([BATCH_SIZE, 3, HEIGHT, WIDTH], dtype=torch.float32).to(device)
     images_l = torch.rand([BATCH_SIZE, 3, HEIGHT, WIDTH], dtype=torch.float32).to(device)
@@ -91,11 +92,12 @@ def main():
 
     tb.add_graph(steer_model, (images_f, images_l, images_r))
 
+    batch_cnt = len(img_dataloader)
     for epoch in range(args.epochs):
         steer_model.train()
 
         avg_loss2_sum = 0.0
-        batch_cnt = 0
+        right_cnt = 0
         for name, imgs_f, imgs_l, imgs_r in tqdm(img_dataloader):
             action = train_action.getitems(name)[:, 0:3]
 
@@ -106,10 +108,10 @@ def main():
             imgs_r = imgs_r.to(device)
 
             output_steer, feat = steer_model(imgs_f, imgs_l, imgs_r)
-            out_steer = output_steer
+            out_steer = output_steer.clone()
 
             steer = action[:, 1].reshape([BATCH_SIZE, -1])
-            label = steer.squeeze()
+            label = np.array(steer.squeeze())
 
             steer = Tensor(label2onehot(steer, 3))
             avg_loss2 = mce_loss(output_steer, steer)
@@ -118,19 +120,28 @@ def main():
             optim.step()
 
             avg_loss2_sum += avg_loss2
-            batch_cnt += 1
 
-            p = torch.cat((softmax(out_steer), steer), dim=1)
+            out_prob = softmax(out_steer)
+
+            p = torch.cat((out_prob, steer), dim=1)
             print(p)
+
+            out_prob = np.argmax(out_prob.detach().cpu().numpy(), axis=1)
+            right_cnt += sum(out_prob==label)
+
 
             #tb.add_embedding(mat=feat, metadata=label, label_img=imgs_f, global_step=30)
 
-        loss2 = avg_loss2_sum / batch_cnt
+        scheduler.step()
 
-        log_info = "[Epoch: %d/%d] [Training Average Loss: %f]" % (epoch, args.epochs, loss2.item())
+        loss2 = avg_loss2_sum / batch_cnt
+        acc = right_cnt / data_len
+
+        log_info = "[Epoch: %d/%d] [Training Average Loss: %f, Accuracy: %f]" % (epoch, args.epochs, loss2.item(), acc)
         print(log_info)
 
         tb.add_scalar('Loss', loss2, epoch)
+        tb.add_scalar('Accuracy', acc, epoch)
 
         tb.add_histogram('img_f.conv1.weight', steer_model.img_f.conv1.weight, epoch)
         tb.add_histogram('img_f.conv1.bias', steer_model.img_f.conv1.bias, epoch)
