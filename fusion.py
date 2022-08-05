@@ -103,67 +103,97 @@ class SteerPredModel(nn.Module):
 
         self.img_f = nn.Sequential(OrderedDict({
                 'conv1' : nn.Conv2d(3, 24, 7, 4),
-                'relu1' : nn.LeakyReLU(0.2),
+                "maxpool1" : nn.MaxPool2d(5, 2),
+                "batchnorm1:" : nn.BatchNorm2d(24),
+                'relu1' : nn.ReLU(),
 
                 'conv2' : nn.Conv2d(24, 36, 5, 3),
-                'relu2' : nn.LeakyReLU(0.2),
+                "maxpool2" : nn.MaxPool2d(3, 1),
+                "batchnorm2:" : nn.BatchNorm2d(36),
+                'relu2' : nn.ReLU(),
 
                 'conv3' : nn.Conv2d(36, 48, 5, 2),
-                'relu3' : nn.LeakyReLU(0.2),
+                "maxpool3" : nn.MaxPool2d(3, 1),
+                "batchnorm3:" : nn.BatchNorm2d(48),
+                'relu3' : nn.ReLU(),
 
-                'conv7' : nn.Conv2d(48, 256, 3, 2),
-                'relu7' : nn.LeakyReLU(0.2),
+                'conv4' : nn.Conv2d(48, 256, 3, 2),
+                "maxpool4" : nn.MaxPool2d(3, 1),
+                "batchnorm4:" : nn.BatchNorm2d(256),
+                'relu4' : nn.ReLU(),
 
-                'conv8' : nn.Conv2d(256, 256, 3, 2),
-                'relu8' : nn.LeakyReLU(0.2),
+                'conv5' : nn.Conv2d(256, 256, 1, 1),
+                "batchnorm5:" : nn.BatchNorm2d(256),
+                'relu5' : nn.ReLU(),
                 }))
 
         self.img_l = nn.Sequential(OrderedDict({
                 'conv1' : nn.Conv2d(3, 24, 7, 4),
-                'relu1' : nn.LeakyReLU(0.2),
+                "maxpool1" : nn.MaxPool2d(5, 2),
+                "batchnorm1:" : nn.BatchNorm2d(24),
+                'relu1' : nn.ReLU(),
 
                 'conv2' : nn.Conv2d(24, 36, 5, 3),
-                'relu2' : nn.LeakyReLU(0.2),
+                "maxpool2" : nn.MaxPool2d(3, 1),
+                "batchnorm2:" : nn.BatchNorm2d(36),
+                'relu2' : nn.ReLU(),
 
                 'conv3' : nn.Conv2d(36, 48, 5, 2),
-                'relu3' : nn.LeakyReLU(0.2),
+                "maxpool3" : nn.MaxPool2d(3, 1),
+                "batchnorm3:" : nn.BatchNorm2d(48),
+                'relu3' : nn.ReLU(),
 
-                'conv7' : nn.Conv2d(48, 256, 3, 2),
-                'relu7' : nn.LeakyReLU(0.2),
+                'conv4' : nn.Conv2d(48, 256, 3, 2),
+                "maxpool4" : nn.MaxPool2d(3, 1),
+                "batchnorm4:" : nn.BatchNorm2d(256),
+                'relu4' : nn.ReLU(),
 
-                'conv8' : nn.Conv2d(256, 256, 3, 2),
-                'relu8' : nn.LeakyReLU(0.2),
+                'conv5' : nn.Conv2d(256, 256, 1, 1),
+                "batchnorm5:" : nn.BatchNorm2d(256),
+                'relu5' : nn.ReLU(),
                 }))
 
         self.img_r = nn.Sequential(OrderedDict({
                 'conv1' : nn.Conv2d(3, 24, 7, 4),
-                'relu1' : nn.LeakyReLU(0.2),
+                "maxpool1" : nn.MaxPool2d(5, 2),
+                "batchnorm1:" : nn.BatchNorm2d(24),
+                'relu1' : nn.ReLU(),
 
                 'conv2' : nn.Conv2d(24, 36, 5, 3),
-                'relu2' : nn.LeakyReLU(0.2),
+                "maxpool2" : nn.MaxPool2d(3, 1),
+                "batchnorm2:" : nn.BatchNorm2d(36),
+                'relu2' : nn.ReLU(),
 
                 'conv3' : nn.Conv2d(36, 48, 5, 2),
-                'relu3' : nn.LeakyReLU(0.2),
+                "maxpool3" : nn.MaxPool2d(3, 1),
+                "batchnorm3:" : nn.BatchNorm2d(48),
+                'relu3' : nn.ReLU(),
 
-                'conv7' : nn.Conv2d(48, 256, 3, 2),
-                'relu7' : nn.LeakyReLU(0.2),
+                'conv4' : nn.Conv2d(48, 256, 3, 2),
+                "maxpool4" : nn.MaxPool2d(3, 1),
+                "batchnorm4:" : nn.BatchNorm2d(256),
+                'relu4' : nn.ReLU(),
 
-                'conv8' : nn.Conv2d(256, 256, 3, 2),
-                'relu8' : nn.LeakyReLU(0.2),
+                'conv5' : nn.Conv2d(256, 256, 1, 1),
+                "batchnorm5:" : nn.BatchNorm2d(256),
+                'relu5' : nn.ReLU(),
                 }))
 
         self.fc = nn.Sequential(OrderedDict({
-                'linear1' : nn.Linear(73728, 512),
-                'relu1' : nn.LeakyReLU(0.2),
+                'linear0' : nn.Linear(24576, 1024),
+                'relu0' : nn.ReLU(),
+
+                'linear1' : nn.Linear(1024, 512),
+                'relu1' : nn.ReLU(),
 
                 'linear2' : nn.Linear(512, 100),
-                'relu2' : nn.LeakyReLU(0.2),
+                'relu2' : nn.ReLU(),
 
                 'linear3' : nn.Linear(100, 50),
-                'relu3' : nn.LeakyReLU(0.2),
+                'relu3' : nn.ReLU(),
 
                 'linear4' : nn.Linear(50, 10),
-                'relu4' : nn.LeakyReLU(0.2),
+                'relu4' : nn.ReLU(),
 
                 'linear5' : nn.Linear(10, 3),
                 }))

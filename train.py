@@ -34,7 +34,7 @@ def build_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--epochs", type=int, default=500, help="number of epochs of training")
     parser.add_argument("--batch_size", type=int, default=BATCH_SIZE, help="size of the batches")
-    parser.add_argument("--lr", type=float, default=0.005, help="adam: learning rate")
+    parser.add_argument("--lr", type=float, default=0.003, help="adam: learning rate")
     parser.add_argument("--b1", type=float, default=0.9, help="adam: decay of first order momentum of gradient")
     parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of second order momentum of gradient")
     parser.add_argument("--gpu", type=int, default=0, help="the index of GPU used to train")
@@ -122,13 +122,11 @@ def main():
             avg_loss2_sum += avg_loss2
 
             out_prob = softmax(out_steer)
-
-            p = torch.cat((out_prob, steer), dim=1)
-            print(p)
-
             out_prob = np.argmax(out_prob.detach().cpu().numpy(), axis=1)
-            right_cnt += sum(out_prob==label)
-
+            pred_res = out_prob==label
+            right_cnt += sum(pred_res)
+            print(pred_res)
+            print("Matching No.: ", right_cnt)
 
             #tb.add_embedding(mat=feat, metadata=label, label_img=imgs_f, global_step=30)
 
@@ -163,7 +161,7 @@ def main():
 
         steer_save_path = os.path.join(ACTION_MODEL_PATH, steer_name) 
 
-        if epoch % 5 == 0:
+        if epoch % 3 == 0:
             torch.save(steer_model.state_dict(), steer_save_path)
 
     tb.close()
