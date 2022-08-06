@@ -195,7 +195,7 @@ class SteerPredModel(nn.Module):
                 'linear4' : nn.Linear(50, 10),
                 'relu4' : nn.ReLU(),
 
-                'linear5' : nn.Linear(10, 3),
+                'linear5' : nn.Linear(10, 7),
                 }))
 
     def forward(self, x_img_f, x_img_l, x_img_r):

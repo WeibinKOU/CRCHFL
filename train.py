@@ -68,8 +68,8 @@ def main():
 
     print("\nData loading ...\n")
 
-    img_dataset = MultiImgData("./dataset/adj_pitch/balanced/", None, data_transform)
-    train_action = ActionData("./dataset/adj_pitch/balanced/cla_action.npy")
+    img_dataset = MultiImgData("./dataset/adj_pitch_balanced/", aug_seq, data_transform)
+    train_action = ActionData("./dataset/adj_pitch_balanced/cla7_action.npy")
 
     img_dataloader = DataLoader(img_dataset, 
             batch_size=args.batch_size,
@@ -111,9 +111,10 @@ def main():
             out_steer = output_steer.clone()
 
             steer = action[:, 1].reshape([BATCH_SIZE, -1])
-            label = np.array(steer.squeeze())
+            label = steer.squeeze()
 
-            steer = Tensor(label2onehot(steer, 3))
+            steer = Tensor(label2onehot(steer, 7))
+
             avg_loss2 = mce_loss(output_steer, steer)
 
             avg_loss2.backward()
@@ -122,11 +123,14 @@ def main():
             avg_loss2_sum += avg_loss2
 
             out_prob = softmax(out_steer)
+            print(out_prob)
+
             out_prob = np.argmax(out_prob.detach().cpu().numpy(), axis=1)
-            pred_res = out_prob==label
+
+            pred_res = out_prob==np.array(label)
             right_cnt += sum(pred_res)
-            print(pred_res)
-            print("Matching No.: ", right_cnt)
+
+            print("Matching No.: ", sum(pred_res))
 
             #tb.add_embedding(mat=feat, metadata=label, label_img=imgs_f, global_step=30)
 
