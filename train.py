@@ -107,7 +107,7 @@ def main():
             imgs_l = imgs_l.to(device)
             imgs_r = imgs_r.to(device)
 
-            output_steer, feat = steer_model(imgs_f, imgs_l, imgs_r)
+            output_steer = steer_model(imgs_f, imgs_l, imgs_r)
             out_steer = output_steer.clone()
 
             steer = action[:, 1].reshape([BATCH_SIZE, -1])
@@ -145,21 +145,9 @@ def main():
         tb.add_scalar('Loss', loss2, epoch)
         tb.add_scalar('Accuracy', acc, epoch)
 
-        tb.add_histogram('img_f.conv1.weight', steer_model.img_f.conv1.weight, epoch)
-        tb.add_histogram('img_f.conv1.bias', steer_model.img_f.conv1.bias, epoch)
-        tb.add_histogram('img_f.conv1.weight.grad' ,steer_model.img_f.conv1.weight.grad ,epoch)
-
-        tb.add_histogram('img_l.conv1.weight', steer_model.img_l.conv1.weight, epoch)
-        tb.add_histogram('img_l.conv1.bias', steer_model.img_f.conv1.bias, epoch)
-        tb.add_histogram('img_l.conv1.weight.grad' ,steer_model.img_l.conv1.weight.grad ,epoch)
-
-        tb.add_histogram('img_r.conv1.weight', steer_model.img_r.conv1.weight, epoch)
-        tb.add_histogram('img_r.conv1.bias', steer_model.img_r.conv1.bias, epoch)
-        tb.add_histogram('img_r.conv1.weight.grad' ,steer_model.img_r.conv1.weight.grad ,epoch)
-
-        tb.add_histogram('fc.linear1.weight', steer_model.fc.linear1.weight, epoch)
-        tb.add_histogram('fc.linear1.bias', steer_model.fc.linear1.bias, epoch)
-        tb.add_histogram('fc.linear1.weight.grad' ,steer_model.fc.linear1.weight.grad ,epoch)
+        tb.add_histogram('extractor.conv1.weight', steer_model.extractor.conv1.weight, epoch)
+        tb.add_histogram('extractor.conv1.bias', steer_model.extractor.conv1.bias, epoch)
+        tb.add_histogram('extractor.conv1.weight.grad' ,steer_model.extractor.conv1.weight.grad ,epoch)
 
         steer_name = "Epoch_%d_steer.pth" % (epoch)
 
