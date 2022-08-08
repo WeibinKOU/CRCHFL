@@ -148,10 +148,10 @@ except ImportError:
 # -- Global functions ----------------------------------------------------------
 # ==============================================================================
 
-IMG_WIDTH = 1280
-IMG_HEIGHT = 960
-#IMG_WIDTH = 640
-#IMG_HEIGHT = 480
+#IMG_WIDTH = 1280
+#IMG_HEIGHT = 960
+IMG_WIDTH = 640
+IMG_HEIGHT = 480
 ego_vehicle = 0
 ego_action = {}
 global_quit = False
@@ -1171,17 +1171,17 @@ def game_loop(args):
         camera_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
         camera_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
         camera_bp.set_attribute('fov', '120')
-        camera_bp.set_attribute('sensor_tick', '1.0')
+        camera_bp.set_attribute('sensor_tick', '1.5')
 
         camera_l_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
         camera_l_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
         camera_l_bp.set_attribute('fov', '120')
-        camera_l_bp.set_attribute('sensor_tick', '1.0')
+        camera_l_bp.set_attribute('sensor_tick', '1.5')
 
         camera_r_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
         camera_r_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
         camera_r_bp.set_attribute('fov', '120')
-        camera_r_bp.set_attribute('sensor_tick', '1.0')
+        camera_r_bp.set_attribute('sensor_tick', '1.5')
 
         # Adjust sensors location relative to vehicle
         cam_location = carla.Location(2.5,0,1.5)
@@ -1286,13 +1286,30 @@ def game_loop(args):
                             rgb = data_transform(rgb)
                             rgb_r = rgb[None].cuda()
 
-                    output_steer, _ = steer_model(rgb_f, rgb_l, rgb_r)
+                    #output_steer, _ = steer_model(rgb_f, rgb_l, rgb_r)
+                    output_steer = steer_model(rgb_f, rgb_l, rgb_r)
                     steer_prob = softmax(output_steer).detach().cpu().numpy().squeeze()
 
-                    print("Output steer: ", steer_prob)
+                    #print("Output steer: ", steer_prob)
 
                     maxidx = np.argmax(steer_prob)
-                    steer = 0 if maxidx == 0 else 0.2 if maxidx == 1 else -0.2
+                    #steer = 0 if maxidx == 0 else 0.2 if maxidx == 1 else -0.2 #3 class
+                    if maxidx == 0:
+                        steer = 0.0
+                    elif maxidx == 1:
+                        steer = 0.125
+                    elif maxidx == 2:
+                        steer = 0.275
+                    elif maxidx == 3:
+                        steer = 0.425
+                    elif maxidx == 4:
+                        steer = -0.125
+                    elif maxidx == 5:
+                        steer = -0.275
+                    elif maxidx == 6:
+                        steer = -0.425
+                    
+
 
                     end = time.clock()
                     print("Prediction time: ", end - start)
