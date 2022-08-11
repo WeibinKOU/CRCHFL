@@ -5,94 +5,52 @@ import numpy as np
 from collections import OrderedDict
 from config import BATCH_SIZE
 
-from pointnet import PointNetfeat as PointNet
-from resnet50 import ResNet50 
-
-class ImgFeatExtractor_2D(nn.Module):
+class ThrottleBrakePredModel(nn.Module):
     def __init__(self):
-        super(ImgFeatExtractor_2D, self).__init__()
-        self.feat_extractor = nn.Sequential(
-                nn.Conv2d(3, 64, 7, 2),
-                nn.BatchNorm2d(64),
-                nn.LeakyReLU(0.1),
-                nn.MaxPool2d(3, 2),
+        super(ThrottleBrakePredModel, self).__init__()
+        self.extractor = nn.Sequential(OrderedDict({
+                'conv1' : nn.Conv2d(3, 64, 7, 2),
+                'maxpool1' : nn.MaxPool2d(3, 2),
+                'batchnorm1' : nn.BatchNorm2d(64),
+                'relu1' : nn.LeakyReLU(0.1),
 
-                nn.Conv2d(64, 128, 5, 2),
-                nn.BatchNorm2d(128),
-                nn.LeakyReLU(0.1),
-                nn.MaxPool2d(3, 2),
+                'conv2' : nn.Conv2d(64, 128, 5, 2),
+                'maxpool2' : nn.MaxPool2d(3, 2),
+                'batchnorm2' : nn.BatchNorm2d(128),
+                'relu2' : nn.LeakyReLU(0.1),
 
-                nn.Dropout(0.3),
+                'dropout' : nn.Dropout(0.3),
 
-                nn.Conv2d(128, 256, 3, 2),
-                nn.BatchNorm2d(256),
-                nn.LeakyReLU(0.1),
-                nn.MaxPool2d(3, 2),
+                'conv3' : nn.Conv2d(128, 256, 3, 2),
+                'maxpool3' : nn.MaxPool2d(3, 2),
+                'batchnorm3' : nn.BatchNorm2d(256),
+                'relu3' : nn.LeakyReLU(0.1),
 
-                nn.Conv2d(256, 512, 1, 1),
-                nn.BatchNorm2d(512),
-                nn.LeakyReLU(0.1),
-                )
+                'conv4' : nn.Conv2d(256, 512, 1, 1),
+                'batchnorm4' : nn.BatchNorm2d(512),
+                'relu4' : nn.LeakyReLU(0.1),
+            }))
 
+        self.fc = nn.Sequential(OrderedDict({
+                'linear1' : nn.Linear(24576, 512),
+                'batchnorm1' : nn.BatchNorm1d(512),
+                'relu1' : nn.ReLU(),
+
+                'linear2' : nn.Linear(512, 128),
+                'batchnorm2' : nn.BatchNorm1d(128),
+                'relu2' : nn.ReLU(),
+                
+                'linear3' : nn.Linear(128, 64),
+                'batchnorm3' : nn.BatchNorm1d(64),
+                'relu3' : nn.ReLU(),
+
+                'linear4' : nn.Linear(64, 2),
+                'relu4' : nn.ReLU()
+            }))
 
     def forward(self, x_rgb):
-        x = self.feat_extractor(x_rgb)
-        x = x.reshape((x.shape[0], -1))
-
-        return x
-
-class ThrottlePredModel(nn.Module):
-    def __init__(self):
-        super(ThrottlePredModel, self).__init__()
-        self.ImgFeatExtractor = ImgFeatExtractor_2D()
-
-        self.fc = nn.Sequential(
-                nn.Linear(24576, 512),
-                nn.BatchNorm1d(512),
-                nn.ReLU(),
-
-                nn.Linear(512, 128),
-                nn.BatchNorm1d(128),
-                nn.ReLU(),
-                
-                nn.Linear(128, 64),
-                nn.BatchNorm1d(64),
-                nn.ReLU(),
-
-                nn.Linear(64, 1),
-                nn.ReLU()
-                )
-
-    def forward(self, x_img):
-        x = self.ImgFeatExtractor(x_img)
-        x = self.fc(x)
-
-        return x
-
-class BrakePredModel(nn.Module):
-    def __init__(self):
-        super(BrakePredModel, self).__init__()
-        self.ImgFeatExtractor = ImgFeatExtractor_2D()
-
-        self.fc = nn.Sequential(
-                nn.Linear(24576, 512),
-                nn.BatchNorm1d(512),
-                nn.ReLU(),
-
-                nn.Linear(512, 128),
-                nn.BatchNorm1d(128),
-                nn.ReLU(),
-                
-                nn.Linear(128, 64),
-                nn.BatchNorm1d(64),
-                nn.ReLU(),
-
-                nn.Linear(64, 1),
-                nn.ReLU()
-                )
-
-    def forward(self, x_img):
-        x = self.ImgFeatExtractor(x_img)
+        x = self.extractor(x_rgb)
+        x = x.view(x.size(0), -1)
         x = self.fc(x)
 
         return x
@@ -154,3 +112,15 @@ class SteerPredModel(nn.Module):
         c = self.fc(x)
 
         return c
+
+class ActionPredModel(nn.Module):
+    def __init__(self):
+        super(ActionPredModel, self).__init__()
+        self.thro_brake = ThrottleBrakePredModel()
+        self.steer = SteerPredModel()
+
+    def forward(self, imgs_f, imgs_l, imgs_r, imgs_b):
+        steer = self.steer(imgs_f, imgs_l, imgs_r)
+        thro_brake = self.thro_brake(imgs_b)
+
+        return thro_brake, steer

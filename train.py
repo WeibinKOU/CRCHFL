@@ -12,8 +12,8 @@ import imgaug as ia
 import imgaug.augmenters as iaa
 from utils.one_hot import label2onehot
 
-from fusion import ThrottlePredModel, BrakePredModel, SteerPredModel
-from dataloader import LidarData, ImgData, ActionData, MultiImgData
+from fusion import ActionPredModel
+from dataloader import ImgData, ActionData, MultiImgData
 from config import *
 
 np.random.seed(0)
@@ -68,58 +68,78 @@ def main():
 
     print("\nData loading ...\n")
 
-    img_dataset = MultiImgData("./dataset/adj_pitch_balanced/", aug_seq, data_transform)
-    train_action = ActionData("./dataset/adj_pitch_balanced/cla7_action.npy")
+    steer_dataset = MultiImgData("./dataset/adj_pitch_balanced/", aug_seq, data_transform)
+    steer_action = ActionData("./dataset/adj_pitch_balanced/cla7_action.npy")
 
-    img_dataloader = DataLoader(img_dataset, 
+    thro_brake_dataset = ImgData("../code/dataset/images/", aug_seq, data_transform)
+    thro_brake_action = ActionData("../code/dataset/action.npy")
+
+    steer_dl = DataLoader(steer_dataset,
             batch_size=args.batch_size,
             shuffle=True,
             num_workers=0,
             drop_last=True)
 
-    data_len = len(img_dataloader) * BATCH_SIZE
-    steer_model = SteerPredModel()
+    thro_brake_dl = DataLoader(thro_brake_dataset,
+            batch_size=args.batch_size,
+            shuffle=True,
+            num_workers=0,
+            drop_last=True)
 
-    steer_model.to(device)
+    data_len = len(steer_dl) * BATCH_SIZE
+    action_model = ActionPredModel()
 
-    parameters = steer_model.parameters()
+    action_model.to(device)
+
+    parameters = action_model.parameters()
     optim = torch.optim.Adam(parameters, lr=args.lr, betas=(args.b1, args.b2), weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=20, gamma=0.1)
 
-    images_f = torch.rand([BATCH_SIZE, 3, HEIGHT, WIDTH], dtype=torch.float32).to(device)
-    images_l = torch.rand([BATCH_SIZE, 3, HEIGHT, WIDTH], dtype=torch.float32).to(device)
-    images_r = torch.rand([BATCH_SIZE, 3, HEIGHT, WIDTH], dtype=torch.float32).to(device)
+    images_f = torch.rand([args.batch_size, 3, HEIGHT, WIDTH], dtype=torch.float32).to(device)
+    images_l = torch.rand([args.batch_size, 3, HEIGHT, WIDTH], dtype=torch.float32).to(device)
+    images_r = torch.rand([args.batch_size, 3, HEIGHT, WIDTH], dtype=torch.float32).to(device)
+    images_b = torch.rand([args.batch_size, 3, HEIGHT, WIDTH], dtype=torch.float32).to(device)
 
-    tb.add_graph(steer_model, (images_f, images_l, images_r))
+    tb.add_graph(action_model, (images_f, images_l, images_r, images_b))
 
-    batch_cnt = len(img_dataloader)
+    batch_cnt = min(len(steer_dl), len(thro_brake_dl))
     for epoch in range(args.epochs):
-        steer_model.train()
+        action_model.train()
 
+        avg_loss1_sum = 0.0
         avg_loss2_sum = 0.0
         right_cnt = 0
-        for name, imgs_f, imgs_l, imgs_r in tqdm(img_dataloader):
-            action = train_action.getitems(name)[:, 0:3]
+        for i in tqdm(range(batch_cnt)):
+            params1, params2 = next(iter(steer_dl)), next(iter(thro_brake_dl))
+            names1, imgs_f, imgs_l, imgs_r = params1[0], params1[1], params1[2], params1[3]
+            names2, imgs_b = params2[0], params2[1]
+
+            st_action = steer_action.getitems(names1)[:, 1]
+            tb_action = thro_brake_action.getitems(names2)[:, 0:3:2]
 
             optim.zero_grad()
 
             imgs_f = imgs_f.to(device)
             imgs_l = imgs_l.to(device)
             imgs_r = imgs_r.to(device)
+            imgs_b = imgs_b.to(device)
 
-            output_steer = steer_model(imgs_f, imgs_l, imgs_r)
-            out_steer = output_steer.clone()
+            out_thro_brake, out_steer = action_model(imgs_f, imgs_l, imgs_r, imgs_b)
 
-            steer = action[:, 1].reshape([BATCH_SIZE, -1])
+            thro_brake = tb_action.reshape([args.batch_size, -1])
+            avg_loss1 = mse_loss(out_thro_brake, Tensor(thro_brake))
+
+            steer = st_action.reshape([args.batch_size, -1])
             label = steer.squeeze()
-
             steer = Tensor(label2onehot(steer, 7))
+            avg_loss2 = mce_loss(out_steer, steer)
 
-            avg_loss2 = mce_loss(output_steer, steer)
-
+            avg_loss1.backward()
             avg_loss2.backward()
+
             optim.step()
 
+            avg_loss1_sum += avg_loss1
             avg_loss2_sum += avg_loss2
 
             out_prob = softmax(out_steer)
@@ -136,25 +156,28 @@ def main():
 
         scheduler.step()
 
+        loss1 = avg_loss1_sum / batch_cnt
         loss2 = avg_loss2_sum / batch_cnt
+
         acc = right_cnt / data_len
 
-        log_info = "[Epoch: %d/%d] [Training Average Loss: %f, Accuracy: %f]" % (epoch, args.epochs, loss2.item(), acc)
+        log_info = "[Epoch: %d/%d] [Throttle and brake Loss: %f, Steer Loss: %f, Steer accuracy: %f]" % (epoch, args.epochs, loss1.item(), loss2.item(), acc)
         print(log_info)
 
-        tb.add_scalar('Loss', loss2, epoch)
-        tb.add_scalar('Accuracy', acc, epoch)
+        tb.add_scalar('Thro_brake Loss', loss1, epoch)
+        tb.add_scalar('Steer Loss', loss2, epoch)
+        tb.add_scalar('Steer Accuracy', acc, epoch)
 
-        tb.add_histogram('extractor.conv1.weight', steer_model.extractor.conv1.weight, epoch)
-        tb.add_histogram('extractor.conv1.bias', steer_model.extractor.conv1.bias, epoch)
-        tb.add_histogram('extractor.conv1.weight.grad' ,steer_model.extractor.conv1.weight.grad ,epoch)
+        #tb.add_histogram('extractor.conv1.weight', steer_model.extractor.conv1.weight, epoch)
+        #tb.add_histogram('extractor.conv1.bias', steer_model.extractor.conv1.bias, epoch)
+        #tb.add_histogram('extractor.conv1.weight.grad' ,steer_model.extractor.conv1.weight.grad ,epoch)
 
-        steer_name = "Epoch_%d_steer.pth" % (epoch)
+        action_name = "Epoch_%d_action.pth" % (epoch)
 
-        steer_save_path = os.path.join(ACTION_MODEL_PATH, steer_name) 
+        action_save_path = os.path.join(ACTION_MODEL_PATH, action_name)
 
         if epoch % 3 == 0:
-            torch.save(steer_model.state_dict(), steer_save_path)
+            torch.save(action_model.state_dict(), action_save_path)
 
     tb.close()
 

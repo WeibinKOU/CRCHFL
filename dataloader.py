@@ -26,11 +26,11 @@ class ImgData(Dataset):
 
     def __getitem__(self, index):
         names = self.name[index]
-        imgs = cv2.imread(self.imgs[index], cv2.IMREAD_COLOR)
+        img = cv2.imread(self.imgs[index], cv2.IMREAD_COLOR)[..., ::-1]
         if self.aug is not None:
-            imgs = self.aug(image=imgs)
-        imgs = self.transform(imgs)
-        return names, imgs
+            img = self.aug(image=img)
+        img = self.transform(img.copy())
+        return names, img
          
 class MultiImgData(Dataset):
     def __init__(self, root_dir, aug, transform):

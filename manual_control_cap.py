@@ -1166,6 +1166,7 @@ def game_loop(args):
         camera_bp = blueprint_library.find('sensor.camera.rgb')
         camera_l_bp = blueprint_library.find('sensor.camera.rgb')
         camera_r_bp = blueprint_library.find('sensor.camera.rgb')
+        camera_b_bp = blueprint_library.find('sensor.camera.rgb')
 
         # set the attributes of newly-added blueprints
         camera_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
@@ -1183,6 +1184,11 @@ def game_loop(args):
         camera_r_bp.set_attribute('fov', '120')
         camera_r_bp.set_attribute('sensor_tick', '1.5')
 
+        camera_b_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
+        camera_b_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
+        camera_b_bp.set_attribute('fov', '120')
+        camera_b_bp.set_attribute('sensor_tick', '1.5')
+
         # Adjust sensors location relative to vehicle
         cam_location = carla.Location(2.5,0,1.5)
         cam_rotation = carla.Rotation(-50,0,0)
@@ -1196,18 +1202,25 @@ def game_loop(args):
         cam_l_rotation = carla.Rotation(-50,-90,0)
         camera_l_spawn_point = carla.Transform(cam_l_location,cam_l_rotation)
 
+        cam_b_location = carla.Location(1.5, 0 ,1.5)
+        cam_b_rotation = carla.Rotation(0, 0, 0)
+        camera_b_spawn_point = carla.Transform(cam_b_location, cam_b_rotation)
+
         # spawn the sensors and attach them to the vehicle
         camera_sensor = world_.spawn_actor(camera_bp, camera_spawn_point, attach_to=ego_vehicle, attachment_type=carla.AttachmentType.Rigid)
         camera_l_sensor = world_.spawn_actor(camera_l_bp, camera_l_spawn_point, attach_to=ego_vehicle, attachment_type=carla.AttachmentType.Rigid)
         camera_r_sensor = world_.spawn_actor(camera_r_bp, camera_r_spawn_point, attach_to=ego_vehicle, attachment_type=carla.AttachmentType.Rigid)
+        camera_b_sensor = world_.spawn_actor(camera_b_bp, camera_b_spawn_point, attach_to=ego_vehicle, attachment_type=carla.AttachmentType.Rigid)
 
         camera_sensor.listen(lambda image: sensor_callback(image, sensor_queue, control_queue, "camera_f"))
         camera_l_sensor.listen(lambda image: sensor_callback(image, sensor_queue, control_queue, "camera_l"))
         camera_r_sensor.listen(lambda image: sensor_callback(image, sensor_queue, control_queue, "camera_r"))
+        camera_b_sensor.listen(lambda image: sensor_callback(image, sensor_queue, control_queue, "camera_b"))
 
         sensor_list.append(camera_sensor)
         sensor_list.append(camera_l_sensor)
         sensor_list.append(camera_r_sensor)
+        sensor_list.append(camera_b_sensor)
 
         clock = pygame.time.Clock()
 
@@ -1232,19 +1245,26 @@ def game_loop(args):
         time.sleep(0.6)
 
         def predict(sensor_list, control_queue):
-            from fusion import SteerPredModel
+            from fusion import ActionPredModel
             from config import data_transform
             import torch.nn as nn
 
             softmax = nn.Softmax(dim=1)
 
-            steer_model = SteerPredModel()
+            action_model = ActionPredModel()
 
-            steer_model.load_state_dict(torch.load('./checkpoints/steer_action.pth'))
+            action_model.load_state_dict(torch.load('./checkpoints/action_model.pth'))
             
-            steer_model.cuda()
+            action_model.cuda()
 
-            steer_model.eval()
+            action_model.eval()
+
+            images_f = torch.rand([1, 3, IMG_HEIGHT, IMG_WIDTH], dtype=torch.float32).cuda()
+            images_l = torch.rand([1, 3, IMG_HEIGHT, IMG_WIDTH], dtype=torch.float32).cuda()
+            images_r = torch.rand([1, 3, IMG_HEIGHT, IMG_WIDTH], dtype=torch.float32).cuda()
+            images_b = torch.rand([1, 3, IMG_HEIGHT, IMG_WIDTH], dtype=torch.float32).cuda()
+
+            _, _ = action_model(images_f, images_l, images_r, images_b)
 
             current_lights = carla.VehicleLightState.NONE
             global is_start
@@ -1285,10 +1305,17 @@ def game_loop(args):
                             rgb[..., [0, 1, 2]] = rgb[..., [2, 1, 0]]
                             rgb = data_transform(rgb)
                             rgb_r = rgb[None].cuda()
+                        if 'camera_b' in sensor_name:
+                            raw_img = np.frombuffer(sensor_data.raw_data, dtype=np.dtype("uint8")).copy()
+                            img = np.reshape(raw_img, (sensor_data.height, sensor_data.width, 4))
+                            rgb = img[:, :, :3]
+                            #cv2.imwrite("../code/dataset/produce/imgs_r/t01_%010d.png" % sensor_frame, rgb)
+                            rgb[..., [0, 1, 2]] = rgb[..., [2, 1, 0]]
+                            rgb = data_transform(rgb)
+                            rgb_b = rgb[None].cuda()
 
-                    #output_steer, _ = steer_model(rgb_f, rgb_l, rgb_r)
-                    output_steer = steer_model(rgb_f, rgb_l, rgb_r)
-                    steer_prob = softmax(output_steer).detach().cpu().numpy().squeeze()
+                    out_thro_brake, out_steer = action_model(rgb_f, rgb_l, rgb_r, rgb_b)
+                    steer_prob = softmax(out_steer).detach().cpu().numpy().squeeze()
 
                     #print("Output steer: ", steer_prob)
 
@@ -1308,15 +1335,15 @@ def game_loop(args):
                         steer = -0.275
                     elif maxidx == 6:
                         steer = -0.425
-                    
-
 
                     end = time.clock()
                     print("Prediction time: ", end - start)
 
-                    throttle = 0.3 if steer == 0 else 0.15
+                    throttle = float(out_thro_brake[0, 0].detach().cpu().numpy())
 
-                    brake = 0.0
+                    #throttle = 0.3 if steer == 0 else 0.15
+
+                    brake = float(out_thro_brake[0, 1].detach().cpu().numpy())
 
                     reverse = False
 
