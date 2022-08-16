@@ -264,7 +264,9 @@ class World(object):
                 sys.exit(1)
             spawn_points = self.map.get_spawn_points()
             #spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
-            spawn_point = carla.Transform(carla.Location(x=300.705978, y=133.239975, z=0.300000), carla.Rotation(pitch=0.000000, yaw=-0.000092, roll=0.000000))
+            spawn_point = carla.Transform(carla.Location(x=300.705978, y=133.239975, z=0.300000), carla.Rotation(pitch=0.000000, yaw=-0.000092, roll=0.000000)) #Town01
+            #spawn_point = carla.Transform(carla.Location(x=135.9 y=226.0 z=0.000000), carla.Rotation(pitch=0.000000, yaw=-0.000092, roll=0.000000)) #Town02
+
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
             self.modify_vehicle_physics(self.player)
             global ego_vehicle

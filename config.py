@@ -5,12 +5,10 @@ DEFAULT_GPU=0
 THREED_CHANNEL=8
 MAX_PT_NUM=8846
 
-BATCH_SIZE=16
+BATCH_SIZE=32
 HEIGHT=480
 WIDTH=640
 
-RESNET_MODEL_PATH='./checkpoints/resnet/'
-POINTNET_MODEL_PATH='./checkpoints/pointnet/'
 ACTION_MODEL_PATH='./checkpoints/'
 
 Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
