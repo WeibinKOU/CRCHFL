@@ -16,7 +16,7 @@ from config import *
 from utils.one_hot import label2onehot
 
 class Client():
-    def __init__(self, server_id, client_id, config, aug_seq, clients_dict, clients_log, training_config, tensorboard):
+    def __init__(self, server_id, client_id, config, test_data, aug_seq, clients_dict, clients_log, training_config, tensorboard):
         self.sid = server_id
         self.cid = client_id
         self.config = config
@@ -28,6 +28,11 @@ class Client():
         self.model = ActionPredModel().to(device)
         self.updated_model = None
         self.epoch_cnt = 0
+        self.eval_data = test_data
+        self.fed_cnt = 0
+        self.softmax = nn.Softmax(dim=1)
+        self.mse_loss = nn.MSELoss().to(device)
+        self.mce_loss = nn.CrossEntropyLoss().to(device)
 
         self.steer_data = MultiImgData(config['steer_data'], aug_seq, data_transform)
         self.steer_action = ActionData(config['steer_action'])
@@ -45,11 +50,6 @@ class Client():
             num_workers=0,
             drop_last=True)
         self.data_len = len(self.steer_dl) * self.batch_size
-
-        self.mce_loss = nn.CrossEntropyLoss()
-        self.mse_loss = nn.MSELoss()
-
-        self.softmax = nn.Softmax(dim=1)
 
         self.parameters = self.model.parameters()
         self.optim = torch.optim.Adam(self.parameters,
@@ -99,6 +99,60 @@ class Client():
         del thro_brake_action
 
         return data_list
+
+    def Evaluate(self):
+        self.model.eval()
+
+        steer_dl, steer_action, thro_brake_dl, thro_brake_action, data_len, batch_cnt = self.eval_data
+
+        right_cnt = 0
+        avg_loss1_sum = 0.0
+        avg_loss2_sum = 0.0
+
+        loss = 0.0
+        steer_acc = 0.0
+
+        with torch.no_grad():
+            for iteration in tqdm(range(batch_cnt)):
+                params1, params2 = next(iter(steer_dl)), next(iter(thro_brake_dl))
+                names1, imgs_f, imgs_l, imgs_r = params1[0], params1[1], params1[2], params1[3]
+                names2, imgs_b = params2[0], params2[1]
+
+                st_action = steer_action.getitems(names1)[:, 1]
+                tb_action = thro_brake_action.getitems(names2)[:, 0:3:2]
+
+                imgs_f = imgs_f.to(device)
+                imgs_l = imgs_l.to(device)
+                imgs_r = imgs_r.to(device)
+                imgs_b = imgs_b.to(device)
+
+                out_thro_brake, out_steer = self.model(imgs_f, imgs_l, imgs_r, imgs_b)
+
+                thro_brake = tb_action.reshape([self.batch_size, -1])
+                avg_loss1 = self.mse_loss(out_thro_brake, Tensor(thro_brake))
+
+                steer = st_action.reshape([self.batch_size, -1])
+                label = steer.squeeze()
+                steer = Tensor(label2onehot(steer, 7))
+                avg_loss2 = self.mce_loss(out_steer, steer)
+
+                avg_loss1_sum += avg_loss1
+                avg_loss2_sum += avg_loss2
+
+                out_prob = self.softmax(out_steer)
+
+                out_prob = np.argmax(out_prob.detach().cpu().numpy(), axis=1)
+
+                pred_res = out_prob==np.array(label)
+                right_cnt += sum(pred_res)
+
+            loss1 = avg_loss1_sum / batch_cnt
+            loss2 = avg_loss2_sum / batch_cnt
+            loss = loss1.item() + loss2.item()
+
+            steer_acc = right_cnt / data_len
+
+        return loss, steer_acc
 
     def train(self):
         for epoch in range(edge_fed_interval):
@@ -161,18 +215,21 @@ class Client():
             self.log['steer_acc'] = right_cnt / self.data_len
             self.log['epochs'] = epoch
 
-            self.log['log_info'] = "[Client ID: %s.%s, Epoch: %d/%d] [ThrottleBrake Loss: %f, Steer Loss: %f, Steer Accuracy: %f]" % (self.sid,
-                              self.cid, self.epoch_cnt, self.epochs,
-                              self.log['thro_brake_loss'].item(),
-                              self.log['steer_loss'].item(),
-                              self.log['steer_acc'])
+            self.log['log_info'] = "[Client ID: %s.%s, Epoch: %d/%d] [Train.Loss: %f, Train.Accuracy: %f]" % (self.sid, self.cid, self.epoch_cnt, self.epochs, self.log['thro_brake_loss'].item() + self.log['steer_loss'].item(), self.log['steer_acc'])
+            print(self.log['log_info'])
 
             self.clients_dict[self.cid] = self.dict
             self.clients_log[self.cid] = self.log
 
-            self.tb.add_scalar(self.sid + '.' + self.cid + '.ThrottleBrakeLoss', self.log['thro_brake_loss'], self.epoch_cnt)
-            self.tb.add_scalar(self.sid + '.' + self.cid + '.SteerLoss', self.log['steer_loss'], self.epoch_cnt)
-            self.tb.add_scalar(self.sid + '.' + self.cid + '.SteerAccuracy', self.log['steer_acc'], self.epoch_cnt)
-            print(self.log['log_info'])
+            self.tb.add_scalar(self.sid + '.' + self.cid + '.Train.Loss',
+                               self.log['thro_brake_loss'] + self.log['steer_loss'], self.epoch_cnt)
+            self.tb.add_scalar(self.sid + '.' + self.cid + '.Train.Accuracy',
+                               self.log['steer_acc'], self.epoch_cnt)
+
+            eval_loss, eval_acc = self.Evaluate()
+            self.tb.add_scalar(self.sid + '.' + self.cid + '.Eval.Loss', eval_loss, self.epoch_cnt)
+            self.tb.add_scalar(self.sid + '.' + self.cid + '.Eval.Loss', eval_acc, self.epoch_cnt)
+            log_info = "[Client ID: %s.%s, Epoch: %d/%d] [Eval.Loss: %f, Eval.Accuracy: %f]" % (self.sid, self.cid, self.epoch_cnt, self.epochs, eval_loss, eval_acc)
+            print(log_info)
 
             self.epoch_cnt += 1

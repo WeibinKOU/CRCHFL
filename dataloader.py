@@ -3,7 +3,7 @@ from torchvision import transforms
 from glob import glob
 
 from torch.utils.data import DataLoader, Dataset
-from config import Tensor, MAX_PT_NUM
+from config import Tensor
 
 import cv2
 import numpy as np
