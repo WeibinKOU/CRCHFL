@@ -8,6 +8,7 @@ from tqdm import tqdm
 
 from .fed_client import Client
 from .fed_optim_variables import *
+from .fed_scheduler import Scheduler
 
 import sys
 sys.path.append("../")
@@ -18,7 +19,7 @@ from config import *
 from utils.one_hot import label2onehot
 
 class EdgeServer():
-    def __init__(self, server_id, config, test_data, aug_seq, edges_dict, training_config, tensorboard):
+    def __init__(self, server_id, config, test_data, aug_seq, edges_dict, training_config, tensorboard, scheduler):
         self.id = server_id
         self.clients_num = len(config)
         self.clients_dict = {}
@@ -34,12 +35,13 @@ class EdgeServer():
         self.softmax = nn.Softmax(dim=1)
         self.mse_loss = nn.MSELoss().to(device)
         self.mce_loss = nn.CrossEntropyLoss().to(device)
+        self.scheduler = scheduler
 
         self.clients = []
         for i in range(self.clients_num):
             cid = 'Vehicle'+str(i)
             self.clients.append(Client(self.id, cid, config[cid], self.eval_data, aug_seq, self.clients_dict,
-                                       self.clients_log, training_config, tensorboard))
+                                       self.clients_log, training_config, tensorboard, scheduler))
             print('Client %s.%s is initialized!' % (self.id, cid))
 
     def run(self):
@@ -47,37 +49,52 @@ class EdgeServer():
             self.clients[i].train()
 
     def FedAvg(self):
-        w_avg = copy.deepcopy(self.clients_dict['Vehicle0']['model_dict'])
+        w_avg = copy.deepcopy(self.clients_dict['Vehicle0'])
         for k in w_avg.keys():
             for i in range(1, len(self.clients_dict)):
-                w_avg[k] += self.clients_dict['Vehicle' + str(i)]['model_dict'][k]
+                w_avg[k] += self.clients_dict['Vehicle' + str(i)][k]
             w_avg[k] = torch.div(w_avg[k], len(self.clients_dict))
 
         self.avgModel = w_avg
-        self.edges_dict[self.id] = self.avgModel
 
         eval_loss, eval_acc = self.Evaluate()
         self.tb.add_scalar('%s.Fed.Eval.Loss' % self.id, eval_loss, self.fed_cnt)
         self.tb.add_scalar('%s.Fed.Eval.Accuracy' % self.id, eval_acc, self.fed_cnt)
-        log_info = "[%dth %s Federated!] [Edge.Fed.Eval.Loss: %f, Edge.Fed.Eval.Accuracy: %f]" % (self.fed_cnt, self.id, eval_loss, eval_acc)
+        log_info = "[%d-th %s Federated!] [Edge.Fed.Eval.Loss: %f, Edge.Fed.Eval.Accuracy: %f]" % (self.fed_cnt, self.id, eval_loss, eval_acc)
         print(log_info)
         self.fed_cnt += 1
+
+        self.edges_dict[self.id] = self.avgModel
+        ret = self.scheduler.transfer_model()
+        if not ret:
+            print("Initialized data size has been used up, so exit!")
+            sys.exit()
 
     def SinkModelToClients(self):
         for client in self.clients:
             client.updated_model = self.avgModel
+            ret = self.scheduler.transfer_model()
+            if not ret:
+                print("Initialized data size has been used up, so exit!")
+                sys.exit()
 
     def PreparePretrainData(self):
         data = []
         for client in self.clients:
             data += client.PreparePretrainData()
+
+        ret = self.scheduler.transfer_entries(len(data) * self.batch_size)
+        if not ret:
+            print("Initialized data size is not enough to transfer pretaining data, so exit!")
+            sys.exit()
+
         return data
 
     def Evaluate(self):
         self.model.load_state_dict(self.avgModel)
         self.model.eval()
 
-        steer_dl, steer_action, thro_brake_dl, thro_brake_action, data_len, batch_cnt = self.eval_data
+        dataloader, action, data_len, batch_cnt = self.eval_data
 
         right_cnt = 0
         avg_loss1_sum = 0.0
@@ -87,13 +104,9 @@ class EdgeServer():
         steer_acc = 0.0
 
         with torch.no_grad():
-            for iteration in tqdm(range(batch_cnt)):
-                params1, params2 = next(iter(steer_dl)), next(iter(thro_brake_dl))
-                names1, imgs_f, imgs_l, imgs_r = params1[0], params1[1], params1[2], params1[3]
-                names2, imgs_b = params2[0], params2[1]
-
-                st_action = steer_action.getitems(names1)[:, 1]
-                tb_action = thro_brake_action.getitems(names2)[:, 0:3:2]
+            for names, imgs_f, imgs_l, imgs_r, imgs_b in tqdm(dataloader):
+                action_batch = action.getitems(names)
+                st_action, tb_action = action_batch[:, 1], action_batch[:, 0:3:2]
 
                 imgs_f = imgs_f.to(device)
                 imgs_l = imgs_l.to(device)
@@ -145,38 +158,30 @@ class CloudServer():
         self.mce_loss = nn.CrossEntropyLoss().to(device)
         self.fed_cnt = 0
 
-
         def build_eval_data(conf):
-            steer_data = MultiImgData(config['test']['steer_data'], None, data_transform)
-            steer_action = ActionData(config['test']['steer_action'])
+            dataset = MultiImgData(conf['test']['dataset'], None, data_transform)
+            action = ActionData(config['test']['action'])
 
-            thro_brake_data = ImgData(config['test']['thro_brake_data'], None, data_transform)
-            thro_brake_action = ActionData(config['test']['thro_brake_action'])
-
-            steer_dl = DataLoader(steer_data,
+            dataloader = DataLoader(dataset,
                     batch_size=self.pretrain_config['batch_size'],
                     shuffle=True,
                     num_workers=0,
                     drop_last=True)
 
-            thro_brake_dl = DataLoader(thro_brake_data,
-                    batch_size=self.pretrain_config['batch_size'],
-                    shuffle=True,
-                    num_workers=0,
-                    drop_last=True)
+            data_len = len(dataloader) * self.pretrain_config['batch_size']
+            batch_cnt = len(dataloader)
 
-            data_len = len(steer_dl) * self.pretrain_config['batch_size']
-            batch_cnt = min(len(steer_dl), len(thro_brake_dl))
+            return dataloader, action, data_len, batch_cnt
 
-            return steer_dl, steer_action, thro_brake_dl, thro_brake_action, data_len, batch_cnt
+        self.eval_data = build_eval_data(config)
 
-        self.eval_data = build_eval_data(config['test'])
+        self.scheduler = Scheduler(training_config['data_constraint'], 150, 450 * 4)
 
         self.edges = []
         for i in range(self.edges_num):
             eid = 'Edge'+str(i)
             self.edges.append(EdgeServer(eid, config[eid], self.eval_data, aug_seq, self.edges_dict,
-                                         training_config, tensorboard))
+                                         training_config, tensorboard, self.scheduler))
 
     def train(self):
         edge_fed_cnt = 0
@@ -184,14 +189,8 @@ class CloudServer():
             for edge in self.edges:
                 edge.run()
 
-            for edge in self.edges:
-                print("[Edge Federated Stage] [%s Federated!]" % edge.id)
-                edge.FedAvg()
-                edge.SinkModelToClients()
-
             edge_fed_cnt += 1
             if edge_fed_cnt == cloud_fed_interval:
-                print("[Cloud Federated Stage] [CloudServer Federated!]")
                 edge_fed_cnt = 0
                 self.FedAvg()
                 self.SinkModelToEdges()
@@ -199,6 +198,11 @@ class CloudServer():
                     edge.SinkModelToClients()
                 save_path = ACTION_MODEL_PATH + "FL_%d_action.pth" % j
                 torch.save(self.avgModel, save_path)
+            else:
+                for edge in self.edges:
+                    edge.FedAvg()
+                    edge.SinkModelToClients()
+
 
     def FedAvg(self):
         for edge in self.edges:
@@ -215,13 +219,17 @@ class CloudServer():
         eval_loss, eval_acc = self.Evaluate()
         self.tb.add_scalar('Cloud.Fed.Eval.Loss', eval_loss, self.fed_cnt)
         self.tb.add_scalar('Cloud.Fed.Eval.Accuracy', eval_acc, self.fed_cnt)
-        log_info = "[%dth Cloud Federated!] [Cloud.Fed.Eval.Loss: %f, Cloud.Fed.Eval.Accuracy: %f]" % (self.fed_cnt, eval_loss, eval_acc)
+        log_info = "[%d-th Cloud Federated!] [Cloud.Fed.Eval.Loss: %f, Cloud.Fed.Eval.Accuracy: %f]" % (self.fed_cnt, eval_loss, eval_acc)
         print(log_info)
         self.fed_cnt += 1
 
     def SinkModelToEdges(self):
         for edge in self.edges:
             edge.avgModel = self.avgModel
+            ret = self.scheduler.transfer_model()
+            if not ret:
+                print("Initialized data size has been used up, so exit!")
+                sys.exit()
 
     def QueryTrainingLog(self):
         log = {}
@@ -250,10 +258,10 @@ class CloudServer():
             avg_loss2_sum = 0.0
             right_cnt = 0
             for data in tqdm(self.pretrain_data):
-                params1, params2 = data['params1'], data['params2']
-                st_action, tb_action = data['st_action'], data['tb_action']
-                _, imgs_f, imgs_l, imgs_r = params1[0], params1[1], params1[2], params1[3]
-                _, imgs_b = params2[0], params2[1]
+                data_batch, action_batch = data['dataset'], data['action']
+                imgs_f, imgs_l, imgs_r, imgs_b = data_batch[1], data_batch[2], data_batch[3], data_batch[4]
+
+                st_action, tb_action = action_batch[:, 1], action_batch[:, 0:3:2]
 
                 optim.zero_grad()
 
@@ -301,6 +309,9 @@ class CloudServer():
             self.tb.add_scalar('Cloud.Pretrain.Train.Loss', loss, epoch)
             self.tb.add_scalar('Cloud.Pretrain.Train.Accuracy', steer_acc, epoch)
 
+            if epoch == pretrain_epochs - 1:
+                self.avgModel = self.pretrain_model.state_dict()
+
             eval_loss, eval_acc = self.Evaluate()
             self.tb.add_scalar('Cloud.Pretrain.Eval.Loss', eval_loss, epoch)
             self.tb.add_scalar('Cloud.Pretrain.Eval.Accuracy', eval_acc, epoch)
@@ -318,7 +329,7 @@ class CloudServer():
         self.pretrain_model.load_state_dict(self.avgModel)
         self.pretrain_model.eval()
 
-        steer_dl, steer_action, thro_brake_dl, thro_brake_action, data_len, batch_cnt = self.eval_data
+        dataloader, action, data_len, batch_cnt = self.eval_data
 
         right_cnt = 0
         avg_loss1_sum = 0.0
@@ -327,13 +338,9 @@ class CloudServer():
         steer_acc = 0.0
 
         with torch.no_grad():
-            for iteration in tqdm(range(batch_cnt)):
-                params1, params2 = next(iter(steer_dl)), next(iter(thro_brake_dl))
-                names1, imgs_f, imgs_l, imgs_r = params1[0], params1[1], params1[2], params1[3]
-                names2, imgs_b = params2[0], params2[1]
-
-                st_action = steer_action.getitems(names1)[:, 1]
-                tb_action = thro_brake_action.getitems(names2)[:, 0:3:2]
+            for names, imgs_f, imgs_l, imgs_r, imgs_b in tqdm(dataloader):
+                action_batch = action.getitems(names)
+                st_action, tb_action = action_batch[:, 1], action_batch[:, 0:3:2]
 
                 imgs_f = imgs_f.to(device)
                 imgs_l = imgs_l.to(device)

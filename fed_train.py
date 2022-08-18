@@ -26,7 +26,7 @@ def build_parser():
     parser.add_argument("--b1", type=float, default=0.9, help="adam: decay of first order momentum of gradient")
     parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of second order momentum of gradient")
     parser.add_argument("--gpu", type=int, default=0, help="the index of GPU used to train")
-    parser.add_argument("--enable_pretrain", type=bool, default=True, help="whether to enable pretaining stage to initialize all the models of edges and vehicles")
+    parser.add_argument("--enable_pretrain", default='True', action='store_false', help="whether to enable pretaining stage to initialize all the models of edges and vehicles")
     args = parser.parse_args()
     return args
 
@@ -40,6 +40,7 @@ def main():
     training_config['lr'] = args.lr
     training_config['betas'] = (args.b1, args.b2)
     training_config['weight_decay'] = 1e-4
+    training_config['data_constraint'] = 30 #units: GBytes
 
     aug_seq = iaa.Sequential([
         iaa.Affine(
