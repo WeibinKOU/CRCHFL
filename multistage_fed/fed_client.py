@@ -68,7 +68,7 @@ class Client():
         action = copy.deepcopy(self.action)
 
         data_list = []
-        for i in range(pretrain_batch_cnt):
+        for i in range(self.scheduler.pretrain_batch_cnt):
             dataset = next(iter(dataloader))
             action_batch = action.getitems(dataset[0])
 
@@ -81,7 +81,7 @@ class Client():
         del dataloader
         del action
 
-        ret = self.scheduler.transfer_entries(pretrain_batch_cnt * self.batch_size)
+        ret = self.scheduler.transfer_entries(self.scheduler.pretrain_batch_cnt * self.batch_size)
         if not ret:
             print("Initialized data size is not enough to transfer pretaining data, so exit!")
             sys.exit()
@@ -145,7 +145,7 @@ class Client():
         return loss, steer_acc
 
     def train(self):
-        for epoch in range(edge_fed_interval):
+        for epoch in range(self.scheduler.edge_fed_interval):
             if self.updated_model is not None:
                 self.model.load_state_dict(self.updated_model)
                 self.updated_model = None
@@ -217,7 +217,7 @@ class Client():
 
             self.epoch_cnt += 1
 
-            if epoch == edge_fed_interval - 1:
+            if epoch == self.scheduler.edge_fed_interval - 1:
                 self.clients_dict[self.cid] = self.model.state_dict()
                 ret = self.scheduler.transfer_model()
                 if not ret:

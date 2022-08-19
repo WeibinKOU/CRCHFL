@@ -150,7 +150,7 @@ class EdgeServer():
         return loss, steer_acc
 
 class CloudServer():
-    def __init__(self, aug_seq, training_config, tensorboard):
+    def __init__(self, aug_seq, training_config, tensorboard, scheduler):
         from .fed_config import config
         self.edges_num = len(config) - 1
         self.edges_dict = {}
@@ -184,7 +184,7 @@ class CloudServer():
 
         self.eval_data = build_eval_data(config)
 
-        self.scheduler = Scheduler(training_config['data_constraint'], 150, 450 * 4)
+        self.scheduler = scheduler
 
         self.edges = []
         for i in range(self.edges_num):
@@ -196,12 +196,12 @@ class CloudServer():
 
     def run(self):
         edge_fed_cnt = 0
-        for j in range(self.epochs // edge_fed_interval):
+        for j in range(self.epochs // self.scheduler.edge_fed_interval):
             for edge in self.edges:
                 edge.run()
 
             edge_fed_cnt += 1
-            if edge_fed_cnt == cloud_fed_interval:
+            if edge_fed_cnt == self.scheduler.cloud_fed_interval:
                 edge_fed_cnt = 0
                 self.FedAvg()
                 self.SinkModelToEdges()
@@ -266,7 +266,7 @@ class CloudServer():
     def Pretrain(self):
         batch_cnt = len(self.pretrain_data)
         data_len = batch_cnt * self.pretrain_config['batch_size']
-        for epoch in range(pretrain_epochs):
+        for epoch in range(self.scheduler.pretrain_epochs):
             self.model.train()
 
             avg_loss1_sum = 0.0
@@ -318,19 +318,19 @@ class CloudServer():
 
             steer_acc = right_cnt / data_len
 
-            log_info = "[Epoch: %d/%d] [Cloud.Pretrain.Train.Loss: %f, Cloud.Pretrain.Train.Accuracy: %f]" % (epoch, pretrain_epochs, loss, steer_acc)
+            log_info = "[Epoch: %d/%d] [Cloud.Pretrain.Train.Loss: %f, Cloud.Pretrain.Train.Accuracy: %f]" % (epoch, self.scheduler.pretrain_epochs, loss, steer_acc)
             print(log_info)
 
             self.tb.add_scalar('Cloud.Pretrain.Train.Loss', loss, epoch)
             self.tb.add_scalar('Cloud.Pretrain.Train.Accuracy', steer_acc, epoch)
 
-            if epoch == pretrain_epochs - 1:
+            if epoch == self.scheduler.pretrain_epochs - 1:
                 self.avgModel = self.model.state_dict()
 
             eval_loss, eval_acc = self.Evaluate()
             self.tb.add_scalar('Cloud.Pretrain.Eval.Loss', eval_loss, epoch)
             self.tb.add_scalar('Cloud.Pretrain.Eval.Accuracy', eval_acc, epoch)
-            log_info = "[Epoch: %d/%d] [Cloud.Pretrain.Eval.Loss: %f, Cloud.Pretrain.Eval.Accuracy: %f]" % (epoch, pretrain_epochs, eval_loss, eval_acc)
+            log_info = "[Epoch: %d/%d] [Cloud.Pretrain.Eval.Loss: %f, Cloud.Pretrain.Eval.Accuracy: %f]" % (epoch, self.scheduler.pretrain_epochs, eval_loss, eval_acc)
             print(log_info)
 
     def CalcClientsCnt(self):

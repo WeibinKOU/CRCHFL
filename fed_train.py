@@ -9,15 +9,17 @@ import sys
 import imgaug.augmenters as iaa
 from config import *
 from multistage_fed.fed_server import CloudServer
+from multistage_fed.scheduler import Scheduler
 
-if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(0)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = True
-    torch.backends.cudnn.enabled = False
-    print(torch.version.cuda)
-    print(torch.backends.cudnn.version())
-    print(torch.cuda.get_device_name(0))
+def print_device_info():
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(0)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.enabled = False
+        print(torch.version.cuda)
+        print(torch.backends.cudnn.version())
+        print(torch.cuda.get_device_name(0))
 
 def build_parser():
     parser = argparse.ArgumentParser()
@@ -29,10 +31,16 @@ def build_parser():
     parser.add_argument("--gpu", type=int, default=0, help="the index of GPU used to train")
     parser.add_argument("--disable_pretrain", action='store_true', help="whether to enable pretaining stage to initialize all the models of edges and vehicles")
     parser.add_argument("--no_fl", action='store_true', help="whether to enable no federated learning")
+    parser.add_argument("--pretrain_epochs", type=int, default=1, help="number of epochs of pretraining on Cloud Server")
+    parser.add_argument("--pretrain_batch_cnt", type=int, default=5, help="how many batches of data that each vehicle should upload to Cloud Server to pretrain ")
+    parser.add_argument("--edge_fed_interval", type=int, default=1, help="each edge_fed_interval vehicle training to do a Edge Server federated learning")
+    parser.add_argument("--cloud_fed_interval", type=int, default=1, help="each cloud_fed_interval Edge Server federated learning to do a Cloud Server federated learning")
+    parser.add_argument("--total_size", type=int, default=30, help="total size of communication resource")
     args = parser.parse_args()
     return args
 
 def main():
+    print_device_info()
     tb = SummaryWriter()
     args = build_parser()
 
@@ -42,7 +50,6 @@ def main():
     training_config['lr'] = args.lr
     training_config['betas'] = (args.b1, args.b2)
     training_config['weight_decay'] = 1e-4
-    training_config['data_constraint'] = 30 #units: GBytes
 
     aug_seq = iaa.Sequential([
         iaa.Affine(
@@ -56,7 +63,14 @@ def main():
         iaa.Resize({'height': HEIGHT, 'width': WIDTH}),
     ])
 
-    cloud = CloudServer(aug_seq, training_config, tb)
+    scheduler = Scheduler(args.total_size, 150, 450 * 4)
+
+    scheduler.set_edge_fed_interval = args.edge_fed_interval
+    scheduler.set_cloud_fed_interval = args.cloud_fed_interval
+    scheduler.set_pretrain_epochs = args.pretrain_epochs
+    scheduler.set_pretrain_batch_cnt = args.pretrain_batch_cnt
+
+    cloud = CloudServer(aug_seq, training_config, tb, scheduler)
 
     try:
         if args.no_fl:
