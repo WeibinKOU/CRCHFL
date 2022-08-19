@@ -5,6 +5,7 @@ import torch
 import torchvision
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
+import sys
 import imgaug.augmenters as iaa
 from config import *
 from multistage_fed.fed_server import CloudServer
@@ -26,7 +27,8 @@ def build_parser():
     parser.add_argument("--b1", type=float, default=0.9, help="adam: decay of first order momentum of gradient")
     parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of second order momentum of gradient")
     parser.add_argument("--gpu", type=int, default=0, help="the index of GPU used to train")
-    parser.add_argument("--enable_pretrain", default='True', action='store_false', help="whether to enable pretaining stage to initialize all the models of edges and vehicles")
+    parser.add_argument("--disable_pretrain", action='store_true', help="whether to enable pretaining stage to initialize all the models of edges and vehicles")
+    parser.add_argument("--no_fl", action='store_true', help="whether to enable no federated learning")
     args = parser.parse_args()
     return args
 
@@ -57,13 +59,18 @@ def main():
     cloud = CloudServer(aug_seq, training_config, tb)
 
     try:
-        if args.enable_pretrain:
+        if args.no_fl:
+            cloud.CollectTrainData()
+            cloud.train()
+            sys.exit()
+
+        if not args.disable_pretrain:
             cloud.CollectPretrainData()
             cloud.Pretrain()
         cloud.SinkModelToEdges()
         for edge in cloud.edges:
             edge.SinkModelToClients()
-        cloud.train()
+        cloud.run()
     finally:
         tb.close()
 

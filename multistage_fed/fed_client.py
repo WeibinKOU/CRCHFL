@@ -68,8 +68,7 @@ class Client():
         action = copy.deepcopy(self.action)
 
         data_list = []
-        batch_cnt = pretrain_batch_cnt if pretrain_batch_cnt > 0 else len(dataloader)
-        for i in range(batch_cnt):
+        for i in range(pretrain_batch_cnt):
             dataset = next(iter(dataloader))
             action_batch = action.getitems(dataset[0])
 
@@ -88,6 +87,12 @@ class Client():
             sys.exit()
 
         return data_list
+
+    def PrepareTrainData(self):
+        data = {}
+        data['loader'] = self.dataloader
+        data['action'] = self.action
+        return data
 
     def Evaluate(self):
         self.model.eval()
@@ -194,20 +199,20 @@ class Client():
             self.log['steer_acc'] = right_cnt / self.data_len
             self.log['epochs'] = epoch
 
-            self.log['log_info'] = "[Client ID: %s.%s, Epoch: %d/%d] [Train.Loss: %f, Train.Accuracy: %f]" % (self.sid, self.cid, self.epoch_cnt, self.epochs, self.log['thro_brake_loss'].item() + self.log['steer_loss'].item(), self.log['steer_acc'])
+            cid = "%s.%s" % (self.sid, self.cid)
+            self.log['log_info'] = "[Epoch: %d/%d] [%s.Train.Loss: %f, %s.Train.Accuracy: %f]" % (self.epoch_cnt, self.epochs, cid, self.log['thro_brake_loss'].item() + self.log['steer_loss'].item(), cid, self.log['steer_acc'])
             print(self.log['log_info'])
 
             self.clients_log[self.cid] = self.log
 
-            self.tb.add_scalar(self.sid + '.' + self.cid + '.Train.Loss',
+            self.tb.add_scalar(cid + '.Train.Loss',
                                self.log['thro_brake_loss'] + self.log['steer_loss'], self.epoch_cnt)
-            self.tb.add_scalar(self.sid + '.' + self.cid + '.Train.Accuracy',
-                               self.log['steer_acc'], self.epoch_cnt)
+            self.tb.add_scalar(cid + '.Train.Accuracy', self.log['steer_acc'], self.epoch_cnt)
 
             eval_loss, eval_acc = self.Evaluate()
-            self.tb.add_scalar(self.sid + '.' + self.cid + '.Eval.Loss', eval_loss, self.epoch_cnt)
-            self.tb.add_scalar(self.sid + '.' + self.cid + '.Eval.Loss', eval_acc, self.epoch_cnt)
-            log_info = "[Client ID: %s.%s, Epoch: %d/%d] [Eval.Loss: %f, Eval.Accuracy: %f]" % (self.sid, self.cid, self.epoch_cnt, self.epochs, eval_loss, eval_acc)
+            self.tb.add_scalar(cid + '.Eval.Loss', eval_loss, self.epoch_cnt)
+            self.tb.add_scalar(cid + '.Eval.Loss', eval_acc, self.epoch_cnt)
+            log_info = "[Epoch: %d/%d] [%s.Eval.Loss: %f, %s.Eval.Accuracy: %f]" % (self.epoch_cnt, self.epochs, cid, eval_loss, cid, eval_acc)
             print(log_info)
 
             self.epoch_cnt += 1

@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from torch.utils.data import DataLoader
+from torch.utils.data.dataset import ConcatDataset
 import os
 from tqdm import tqdm
 
@@ -60,7 +61,7 @@ class EdgeServer():
         eval_loss, eval_acc = self.Evaluate()
         self.tb.add_scalar('%s.Fed.Eval.Loss' % self.id, eval_loss, self.fed_cnt)
         self.tb.add_scalar('%s.Fed.Eval.Accuracy' % self.id, eval_acc, self.fed_cnt)
-        log_info = "[%d-th %s Federated!] [Edge.Fed.Eval.Loss: %f, Edge.Fed.Eval.Accuracy: %f]" % (self.fed_cnt, self.id, eval_loss, eval_acc)
+        log_info = "[Edge Fed: %d] [%s.Fed.Eval.Loss: %f, %s.Fed.Eval.Accuracy: %f]" % (self.fed_cnt, self.id, eval_loss, self.id, eval_acc)
         print(log_info)
         self.fed_cnt += 1
 
@@ -87,6 +88,13 @@ class EdgeServer():
         if not ret:
             print("Initialized data size is not enough to transfer pretaining data, so exit!")
             sys.exit()
+
+        return data
+
+    def PrepareTrainData(self):
+        data = []
+        for client in self.clients:
+            data.append(client.PrepareTrainData())
 
         return data
 
@@ -147,8 +155,9 @@ class CloudServer():
         self.edges_num = len(config) - 1
         self.edges_dict = {}
         self.pretrain_data = None
-        self.pretrain_model = ActionPredModel().to(device)
-        self.avgModel = self.pretrain_model.state_dict()
+        self.train_data = None
+        self.model = ActionPredModel().to(device)
+        self.avgModel = self.model.state_dict()
         self.pretrain_config = training_config
         self.tb = tensorboard
         self.epochs = training_config['epochs']
@@ -182,8 +191,10 @@ class CloudServer():
             eid = 'Edge'+str(i)
             self.edges.append(EdgeServer(eid, config[eid], self.eval_data, aug_seq, self.edges_dict,
                                          training_config, tensorboard, self.scheduler))
+        self.optim = torch.optim.Adam(self.model.parameters(), lr=self.pretrain_config['lr'], betas=self.pretrain_config['betas'], weight_decay=1e-4)
+        self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optim, step_size=20, gamma=0.1)
 
-    def train(self):
+    def run(self):
         edge_fed_cnt = 0
         for j in range(self.epochs // edge_fed_interval):
             for edge in self.edges:
@@ -216,10 +227,11 @@ class CloudServer():
 
         self.avgModel = w_avg
 
+        self.model.load_state_dict(self.avgModel)
         eval_loss, eval_acc = self.Evaluate()
         self.tb.add_scalar('Cloud.Fed.Eval.Loss', eval_loss, self.fed_cnt)
         self.tb.add_scalar('Cloud.Fed.Eval.Accuracy', eval_acc, self.fed_cnt)
-        log_info = "[%d-th Cloud Federated!] [Cloud.Fed.Eval.Loss: %f, Cloud.Fed.Eval.Accuracy: %f]" % (self.fed_cnt, eval_loss, eval_acc)
+        log_info = "[Cloud Fed: %d] [Cloud.Fed.Eval.Loss: %f, Cloud.Fed.Eval.Accuracy: %f]" % (self.fed_cnt, eval_loss, eval_acc)
         print(log_info)
         self.fed_cnt += 1
 
@@ -244,15 +256,18 @@ class CloudServer():
 
         self.pretrain_data = data
 
-    def Pretrain(self):
-        parameters = self.pretrain_model.parameters()
-        optim = torch.optim.Adam(parameters, lr=self.pretrain_config['lr'], betas=self.pretrain_config['betas'], weight_decay=1e-4)
-        scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=20, gamma=0.1)
+    def CollectTrainData(self):
+        data = []
+        for edge in self.edges:
+            data += edge.PrepareTrainData()
 
+        self.train_data = data
+
+    def Pretrain(self):
         batch_cnt = len(self.pretrain_data)
         data_len = batch_cnt * self.pretrain_config['batch_size']
         for epoch in range(pretrain_epochs):
-            self.pretrain_model.train()
+            self.model.train()
 
             avg_loss1_sum = 0.0
             avg_loss2_sum = 0.0
@@ -263,14 +278,14 @@ class CloudServer():
 
                 st_action, tb_action = action_batch[:, 1], action_batch[:, 0:3:2]
 
-                optim.zero_grad()
+                self.optim.zero_grad()
 
                 imgs_f = imgs_f.to(device)
                 imgs_l = imgs_l.to(device)
                 imgs_r = imgs_r.to(device)
                 imgs_b = imgs_b.to(device)
 
-                out_thro_brake, out_steer = self.pretrain_model(imgs_f, imgs_l, imgs_r, imgs_b)
+                out_thro_brake, out_steer = self.model(imgs_f, imgs_l, imgs_r, imgs_b)
 
                 thro_brake = tb_action.reshape([self.pretrain_config['batch_size'], -1])
                 avg_loss1 = self.mse_loss(out_thro_brake, Tensor(thro_brake))
@@ -283,7 +298,7 @@ class CloudServer():
                 avg_loss1.backward()
                 avg_loss2.backward()
 
-                optim.step()
+                self.optim.step()
 
                 avg_loss1_sum += avg_loss1
                 avg_loss2_sum += avg_loss2
@@ -295,7 +310,7 @@ class CloudServer():
                 pred_res = out_prob==np.array(label)
                 right_cnt += sum(pred_res)
 
-            scheduler.step()
+            self.lr_scheduler.step()
 
             loss1 = avg_loss1_sum / batch_cnt
             loss2 = avg_loss2_sum / batch_cnt
@@ -303,19 +318,19 @@ class CloudServer():
 
             steer_acc = right_cnt / data_len
 
-            log_info = "[Pretrain Stage] [Epoch: %d/%d] [Train.Loss: %f, Train.Accuracy: %f]" % (epoch, pretrain_epochs, loss, steer_acc)
+            log_info = "[Epoch: %d/%d] [Cloud.Pretrain.Train.Loss: %f, Cloud.Pretrain.Train.Accuracy: %f]" % (epoch, pretrain_epochs, loss, steer_acc)
             print(log_info)
 
             self.tb.add_scalar('Cloud.Pretrain.Train.Loss', loss, epoch)
             self.tb.add_scalar('Cloud.Pretrain.Train.Accuracy', steer_acc, epoch)
 
             if epoch == pretrain_epochs - 1:
-                self.avgModel = self.pretrain_model.state_dict()
+                self.avgModel = self.model.state_dict()
 
             eval_loss, eval_acc = self.Evaluate()
             self.tb.add_scalar('Cloud.Pretrain.Eval.Loss', eval_loss, epoch)
             self.tb.add_scalar('Cloud.Pretrain.Eval.Accuracy', eval_acc, epoch)
-            log_info = "[Pretrain Stage] [Epoch: %d/%d] [Eval.Loss: %f, Eval.Accuracy: %f]" % (epoch, pretrain_epochs, eval_loss, eval_acc)
+            log_info = "[Epoch: %d/%d] [Cloud.Pretrain.Eval.Loss: %f, Cloud.Pretrain.Eval.Accuracy: %f]" % (epoch, pretrain_epochs, eval_loss, eval_acc)
             print(log_info)
 
     def CalcClientsCnt(self):
@@ -326,8 +341,7 @@ class CloudServer():
         return cnt
 
     def Evaluate(self):
-        self.pretrain_model.load_state_dict(self.avgModel)
-        self.pretrain_model.eval()
+        self.model.eval()
 
         dataloader, action, data_len, batch_cnt = self.eval_data
 
@@ -347,7 +361,7 @@ class CloudServer():
                 imgs_r = imgs_r.to(device)
                 imgs_b = imgs_b.to(device)
 
-                out_thro_brake, out_steer = self.pretrain_model(imgs_f, imgs_l, imgs_r, imgs_b)
+                out_thro_brake, out_steer = self.model(imgs_f, imgs_l, imgs_r, imgs_b)
 
                 thro_brake = tb_action.reshape([self.pretrain_config['batch_size'], -1])
                 avg_loss1 = self.mse_loss(out_thro_brake, Tensor(thro_brake))
@@ -374,3 +388,90 @@ class CloudServer():
             steer_acc = right_cnt / data_len
 
         return loss, steer_acc
+
+    def train(self):
+        epochs = 100
+        for epoch in range(epochs):
+            batch_cnt = []
+            for item in self.train_data:
+                batch_cnt.append(len(item['loader']))
+
+            batch_cnt_sum = sum(batch_cnt)
+            data_len = batch_cnt_sum * self.pretrain_config['batch_size']
+
+            data_iter = iter(self.train_data)
+            first_data = next(data_iter)
+
+            dataloader = first_data['loader']
+            action = first_data['action']
+
+            self.model.train()
+
+            avg_loss1_sum = 0.0
+            avg_loss2_sum = 0.0
+            right_cnt = 0
+            for iteration in tqdm(range(batch_cnt_sum + len(self.train_data) - 1)):
+                try:
+                    names, imgs_f, imgs_l, imgs_r, imgs_b = next(iter(dataloader))
+                    action_batch = action.getitems(names)
+                    st_action, tb_action = action_batch[:, 1], action_batch[:, 0:3:2]
+
+                    self.optim.zero_grad()
+
+                    imgs_f = imgs_f.to(device)
+                    imgs_l = imgs_l.to(device)
+                    imgs_r = imgs_r.to(device)
+                    imgs_b = imgs_b.to(device)
+
+                    out_thro_brake, out_steer = self.model(imgs_f, imgs_l, imgs_r, imgs_b)
+
+                    thro_brake = tb_action.reshape([self.pretrain_config['batch_size'], -1])
+                    avg_loss1 = self.mse_loss(out_thro_brake, Tensor(thro_brake))
+
+                    steer = st_action.reshape([self.pretrain_config['batch_size'], -1])
+                    label = steer.squeeze()
+                    steer = Tensor(label2onehot(steer, 7))
+                    avg_loss2 = self.mce_loss(out_steer, steer)
+
+                    avg_loss1.backward()
+                    avg_loss2.backward()
+
+                    self.optim.step()
+
+                    avg_loss1_sum += avg_loss1
+                    avg_loss2_sum += avg_loss2
+
+                    out_prob = self.softmax(out_steer)
+
+                    out_prob = np.argmax(out_prob.detach().cpu().numpy(), axis=1)
+
+                    pred_res = out_prob==np.array(label)
+                    right_cnt += sum(pred_res)
+                except StopIteration:
+                    tmp_data = next(data_iter)
+                    dataloader = tmp_data['loader']
+                    action = tmp_data['action']
+
+            self.lr_scheduler.step()
+
+            loss1 = avg_loss1_sum / batch_cnt_sum
+            loss2 = avg_loss2_sum / batch_cnt_sum
+            loss = loss1.item() + loss2.item()
+
+            steer_acc = right_cnt / data_len
+
+            log_info = "[Epoch: %d/%d] [Cloud.Train.Train.Loss: %f, Cloud.Train.Train.Accuracy: %f]" % (epoch, epochs, loss, steer_acc)
+            print(log_info)
+
+            self.tb.add_scalar('Cloud.Train.Train.Loss', loss, epoch)
+            self.tb.add_scalar('Cloud.Train.Train.Accuracy', steer_acc, epoch)
+
+            if epoch % 3 == 2:
+                save_path = ACTION_MODEL_PATH + "No_FL_%d_action.pth" % epoch
+                torch.save(self.model.state_dict(), save_path)
+
+            eval_loss, eval_acc = self.Evaluate()
+            self.tb.add_scalar('Cloud.Train.Eval.Loss', eval_loss, epoch)
+            self.tb.add_scalar('Cloud.Train.Eval.Accuracy', eval_acc, epoch)
+            log_info = "[Epoch: %d/%d] [Cloud.Train.Eval.Loss: %f, Cloud.Train.Eval.Accuracy: %f]" % (epoch, epochs, eval_loss, eval_acc)
+            print(log_info)
