@@ -5,6 +5,8 @@ class Scheduler():
             total_data_size: GBytes
             model_size: MBytes
             data_entry_size: KBytes
+
+        PS: if total_data_size == -1, means unlimited communication resource
         '''
         self.is_unlimited = True if total_data_size < 0 else False
         self.remain_size = total_data_size * 1024 * 1024
@@ -27,7 +29,7 @@ class Scheduler():
         return ret
 
     def transfer_model(self):
-        if not sefl.is_unlimited:
+        if not self.is_unlimited:
             self.remain_size -= self.model_size
             ret = True if self.remain_size >=0 else False
             print("After model transferring, Scheduler remaining data size: ", self.remain_size)

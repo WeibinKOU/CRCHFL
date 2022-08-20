@@ -5,8 +5,6 @@ from torch.utils.data import DataLoader
 import copy
 from tqdm import tqdm
 
-from .fed_optim_variables import *
-
 import sys
 sys.path.append("../")
 

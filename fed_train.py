@@ -9,7 +9,7 @@ import sys
 import imgaug.augmenters as iaa
 from config import *
 from multistage_fed.fed_server import CloudServer
-from multistage_fed.scheduler import Scheduler
+from multistage_fed.fed_scheduler import Scheduler
 
 def print_device_info():
     if torch.cuda.is_available():
@@ -30,7 +30,7 @@ def build_parser():
     parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of second order momentum of gradient")
     parser.add_argument("--gpu", type=int, default=0, help="the index of GPU used to train")
     parser.add_argument("--disable_pretrain", action='store_true', help="whether to enable pretaining stage to initialize all the models of edges and vehicles")
-    parser.add_argument("--no_fl", action='store_true', help="whether to enable no federated learning")
+    parser.add_argument("--no_fl", action='store_true', help="whether to enable no-federated-learning")
     parser.add_argument("--pretrain_epochs", type=int, default=1, help="number of epochs of pretraining on Cloud Server")
     parser.add_argument("--pretrain_batch_cnt", type=int, default=5, help="how many batches of data that each vehicle should upload to Cloud Server to pretrain ")
     parser.add_argument("--edge_fed_interval", type=int, default=1, help="each edge_fed_interval vehicle training to do a Edge Server federated learning")

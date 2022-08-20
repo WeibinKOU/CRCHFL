@@ -8,7 +8,6 @@ import os
 from tqdm import tqdm
 
 from .fed_client import Client
-from .fed_optim_variables import *
 from .fed_scheduler import Scheduler
 
 import sys

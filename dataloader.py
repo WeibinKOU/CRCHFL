@@ -7,6 +7,7 @@ from config import Tensor
 
 import cv2
 import numpy as np
+import sys
 
 class ImgData(Dataset):
     def __init__(self, dataset_dir, aug, transform):
@@ -16,8 +17,12 @@ class ImgData(Dataset):
  
         self.imgs = glob(dataset_dir + "/*.png")
         name_list = []
+        platform = sys.platform
         for img in self.imgs:
-            name_list.append(img.split('\\')[-1].split('.')[0])
+            if 'win' in platform:
+                name_list.append(img.split('\\')[-1].split('.')[0])
+            elif 'linux' in platform:
+                name_list.append(img.split('/')[-1].split('.')[0])
 
         self.name = name_list
 
@@ -43,8 +48,12 @@ class MultiImgData(Dataset):
         self.imgs_r = glob(root_dir + "/imgs_r/" + "/*.png")
         self.imgs_b = glob(root_dir + "/imgs_b/" + "/*.png")
         name_list = []
+        platform = sys.platform
         for img in self.imgs_f:
-            name_list.append(img.split('\\')[-1].split('.')[0])
+            if 'win' in platform:
+                name_list.append(img.split('\\')[-1].split('.')[0])
+            elif 'linux' in platform:
+                name_list.append(img.split('/')[-1].split('.')[0])
 
         self.name = name_list
 
@@ -85,8 +94,12 @@ class LidarData():
     def __init__(self, lidar_dir):
         lidars = glob(lidar_dir + "/*.txt")
         lidar_dict = {}
+        platform = sys.platform
         for lidar in lidars:
-            lidar_dict[lidar.split('\\')[-1].split('.')[0]] = np.loadtxt(lidar)
+            if 'win' in platform:
+                lidar_dict[lidar.split('\\')[-1].split('.')[0]] = np.loadtxt(lidar)
+            elif 'linux' in platform:
+                lidar_dict[lidar.split('/')[-1].split('.')[0]] = np.loadtxt(lidar)
         def align_lidar(lidar_dict):
             max_npoints = 0
             n_list = []
