@@ -262,6 +262,13 @@ class CloudServer():
 
         self.train_data = data
 
+    def CollectTrainData(self, edge):
+        index = int(edge[-1])
+        data = []
+        data += self.edges[index].PrepareTrainData()
+
+        self.train_data = data
+
     def Pretrain(self):
         batch_cnt = len(self.pretrain_data)
         data_len = batch_cnt * self.pretrain_config['batch_size']

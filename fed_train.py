@@ -74,7 +74,7 @@ def main():
 
     try:
         if args.no_fl:
-            cloud.CollectTrainData()
+            cloud.CollectTrainData('Edge0')
             cloud.train()
             sys.exit()
 

@@ -41,6 +41,56 @@ def build_parser():
     args = parser.parse_args()
     return args
 
+def Evaluate(model, eval_data, mse_loss, mce_loss, softmax, batch_size):
+    model.eval()
+
+    dataloader, action, data_len, batch_cnt = eval_data
+
+    right_cnt = 0
+    avg_loss1_sum = 0.0
+    avg_loss2_sum = 0.0
+    loss = 0.0
+    steer_acc = 0.0
+
+    with torch.no_grad():
+        for names, imgs_f, imgs_l, imgs_r, imgs_b in tqdm(dataloader):
+            action_batch = action.getitems(names)
+            st_action, tb_action = action_batch[:, 1], action_batch[:, 0:3:2]
+
+            imgs_f = imgs_f.to(device)
+            imgs_l = imgs_l.to(device)
+            imgs_r = imgs_r.to(device)
+            imgs_b = imgs_b.to(device)
+
+            out_thro_brake, out_steer = model(imgs_f, imgs_l, imgs_r, imgs_b)
+
+            thro_brake = tb_action.reshape([batch_size, -1])
+            avg_loss1 = mse_loss(out_thro_brake, Tensor(thro_brake))
+
+            steer = st_action.reshape([batch_size, -1])
+            label = steer.squeeze()
+            steer = Tensor(label2onehot(steer, 7))
+            avg_loss2 = mce_loss(out_steer, steer)
+
+            avg_loss1_sum += avg_loss1
+            avg_loss2_sum += avg_loss2
+
+            out_prob = softmax(out_steer)
+
+            out_prob = np.argmax(out_prob.detach().cpu().numpy(), axis=1)
+
+            pred_res = out_prob==np.array(label)
+            right_cnt += sum(pred_res)
+
+        loss1 = avg_loss1_sum / batch_cnt
+        loss2 = avg_loss2_sum / batch_cnt
+        loss = loss1.item() + loss2.item()
+
+        steer_acc = right_cnt / data_len
+
+    return loss, steer_acc
+
+
 def main():
     tb = SummaryWriter()
     args = build_parser()
@@ -53,8 +103,6 @@ def main():
     softmax = nn.Softmax(dim=1)
 
     aug_seq = iaa.Sequential([
-        #iaa.Fliplr(.5),
-
         iaa.Affine(
             translate_percent={'x': (-.05, .05), 'y': (-.1, .1)},
             rotate=(-15, 15)
@@ -68,25 +116,27 @@ def main():
 
     print("\nData loading ...\n")
 
-    steer_dataset = MultiImgData("./dataset/adj_pitch_balanced/", aug_seq, data_transform)
-    steer_action = ActionData("./dataset/adj_pitch_balanced/cla7_action.npy")
+    dataset = MultiImgData("./dataset/town01/", aug_seq, data_transform)
+    action = ActionData("./dataset/town01/cla7_action.npy")
 
-    thro_brake_dataset = ImgData("../code/dataset/images/", aug_seq, data_transform)
-    thro_brake_action = ActionData("../code/dataset/action.npy")
+    eval_dataset = MultiImgData("./dataset/test/", aug_seq, data_transform)
+    eval_action = ActionData("./dataset/test/cla7_action.npy")
 
-    steer_dl = DataLoader(steer_dataset,
+    dataloader = DataLoader(dataset,
             batch_size=args.batch_size,
             shuffle=True,
             num_workers=0,
             drop_last=True)
+    data_len = len(dataloader) * args.batch_size
 
-    thro_brake_dl = DataLoader(thro_brake_dataset,
+    eval_dataloader = DataLoader(eval_dataset,
             batch_size=args.batch_size,
             shuffle=True,
             num_workers=0,
             drop_last=True)
+    eval_data_len = len(eval_dataloader) * args.batch_size
+    eval_data = [eval_dataloader, eval_action, eval_data_len, len(eval_dataloader)]
 
-    data_len = len(steer_dl) * BATCH_SIZE
     action_model = ActionPredModel()
 
     action_model.to(device)
@@ -102,20 +152,18 @@ def main():
 
     tb.add_graph(action_model, (images_f, images_l, images_r, images_b))
 
-    batch_cnt = min(len(steer_dl), len(thro_brake_dl))
+    batch_cnt = len(dataloader)
     for epoch in range(args.epochs):
         action_model.train()
 
         avg_loss1_sum = 0.0
         avg_loss2_sum = 0.0
         right_cnt = 0
-        for i in tqdm(range(batch_cnt)):
-            params1, params2 = next(iter(steer_dl)), next(iter(thro_brake_dl))
-            names1, imgs_f, imgs_l, imgs_r = params1[0], params1[1], params1[2], params1[3]
-            names2, imgs_b = params2[0], params2[1]
+        for names, imgs_f, imgs_l, imgs_r, imgs_b in tqdm(dataloader):
+            actions = action.getitems(names)
 
-            st_action = steer_action.getitems(names1)[:, 1]
-            tb_action = thro_brake_action.getitems(names2)[:, 0:3:2]
+            st_action = actions[:, 1]
+            tb_action = actions[:, 0:3:2]
 
             optim.zero_grad()
 
@@ -143,40 +191,35 @@ def main():
             avg_loss2_sum += avg_loss2
 
             out_prob = softmax(out_steer)
-            print(out_prob)
 
             out_prob = np.argmax(out_prob.detach().cpu().numpy(), axis=1)
 
             pred_res = out_prob==np.array(label)
             right_cnt += sum(pred_res)
 
-            print("Matching No.: ", sum(pred_res))
-
-            #tb.add_embedding(mat=feat, metadata=label, label_img=imgs_f, global_step=30)
-
         scheduler.step()
 
         loss1 = avg_loss1_sum / batch_cnt
         loss2 = avg_loss2_sum / batch_cnt
 
+        loss = loss1.item() + loss2.item()
         acc = right_cnt / data_len
 
-        log_info = "[Epoch: %d/%d] [Throttle and brake Loss: %f, Steer Loss: %f, Steer accuracy: %f]" % (epoch, args.epochs, loss1.item(), loss2.item(), acc)
+        log_info = "[Epoch: %d/%d] [Train.Loss: %f, Train.Accuracy: %f]" % (epoch, args.epochs, loss, acc)
         print(log_info)
 
-        tb.add_scalar('Thro_brake Loss', loss1, epoch)
-        tb.add_scalar('Steer Loss', loss2, epoch)
-        tb.add_scalar('Steer Accuracy', acc, epoch)
+        tb.add_scalar('Train.Loss', loss, epoch)
+        tb.add_scalar('Train.Accuracy', acc, epoch)
 
-        #tb.add_histogram('extractor.conv1.weight', steer_model.extractor.conv1.weight, epoch)
-        #tb.add_histogram('extractor.conv1.bias', steer_model.extractor.conv1.bias, epoch)
-        #tb.add_histogram('extractor.conv1.weight.grad' ,steer_model.extractor.conv1.weight.grad ,epoch)
-
-        action_name = "Epoch_%d_action.pth" % (epoch)
-
-        action_save_path = os.path.join(ACTION_MODEL_PATH, action_name)
+        eval_loss, eval_acc = Evaluate(action_model, eval_data, mse_loss, mce_loss, softmax, args.batch_size)
+        tb.add_scalar('Eval.Loss', eval_loss, epoch)
+        tb.add_scalar('Eval.Accuracy', eval_acc, epoch)
+        log_info = "[Epoch: %d/%d] [Eval.Loss: %f, Eval.Accuracy: %f]" % (epoch, args.epochs, eval_loss, eval_acc)
+        print(log_info)
 
         if epoch % 3 == 0:
+            action_name = "Epoch_%d_action.pth" % (epoch)
+            action_save_path = os.path.join(ACTION_MODEL_PATH, action_name)
             torch.save(action_model.state_dict(), action_save_path)
 
     tb.close()

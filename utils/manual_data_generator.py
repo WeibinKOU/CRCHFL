@@ -148,19 +148,16 @@ except ImportError:
 # -- Global functions ----------------------------------------------------------
 # ==============================================================================
 
-#IMG_WIDTH = 1280
-#IMG_HEIGHT = 960
-IMG_WIDTH = 640
-IMG_HEIGHT = 480
+#IMG_WIDTH = 1280 
+#IMG_HEIGHT = 960 
+IMG_WIDTH = 640 
+IMG_HEIGHT = 480 
 ego_vehicle = 0
-ego_action = {}
+ego_action = {} 
 global_quit = False
 is_capturing = False
 is_il_control = False
-is_start = False
 Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
-pred_rgb = None
-pred_pts =None
 
 
 def find_weather_presets():
@@ -230,7 +227,6 @@ class World(object):
         cam_index = self.camera_manager.index if self.camera_manager is not None else 0
         cam_pos_index = self.camera_manager.transform_index if self.camera_manager is not None else 0
         # Get a random blueprint.
-        #camera_bp = blueprint_library.find('sensor.camera.rgb')
         #blueprint = random.choice(self.world.get_blueprint_library().filter(self._actor_filter))
         blueprint = self.world.get_blueprint_library().find('vehicle.audi.tt')
         blueprint.set_attribute('role_name', self.actor_role_name)
@@ -263,10 +259,7 @@ class World(object):
                 print('Please add some Vehicle Spawn Point to your UE4 scene.')
                 sys.exit(1)
             spawn_points = self.map.get_spawn_points()
-            #spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
-            spawn_point = carla.Transform(carla.Location(x=300.705978, y=133.239975, z=0.300000), carla.Rotation(pitch=0.000000, yaw=-0.000092, roll=0.000000)) #Town01
-            #spawn_point = carla.Transform(carla.Location(x=135.9 y=226.0 z=0.000000), carla.Rotation(pitch=0.000000, yaw=-0.000092, roll=0.000000)) #Town02
-
+            spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
             self.modify_vehicle_physics(self.player)
             global ego_vehicle
@@ -538,7 +531,8 @@ class KeyboardControl(object):
 
     def _parse_vehicle_keys(self, keys, milliseconds):
         if keys[K_UP] or keys[K_w]:
-            self._control.throttle = min(self._control.throttle + 0.01, 1)
+            #self._control.throttle = min(self._control.throttle + 0.01, 0.3)
+            self._control.throttle = min(self._control.throttle + 0.2, 0.7)
         else:
             self._control.throttle = 0.0
 
@@ -560,7 +554,7 @@ class KeyboardControl(object):
                 self._steer_cache += steer_increment
         else:
             self._steer_cache = 0.0
-        self._steer_cache = min(0.7, max(-0.7, self._steer_cache))
+        self._steer_cache = min(0.2, max(-0.2, self._steer_cache))
         self._control.steer = round(self._steer_cache, 1)
         self._control.hand_brake = keys[K_SPACE]
 
@@ -1120,16 +1114,17 @@ class CameraManager(object):
 
 def sensor_callback(sensor_data, sensor_queue, control_queue, sensor_name):
     if is_capturing:
-        if 'camera' in sensor_name:
+        if 'camera_f' in sensor_name:
             global ego_action
             c = ego_vehicle.get_control()
             action = [c.throttle, c.steer, c.brake, 1.0 if c.reverse else 0.0]
             ego_action['t01_%010d' % sensor_data.frame] = action
 
         sensor_queue.put((sensor_data, sensor_data.frame, sensor_name))
-    if is_il_control and is_start:
+    if is_il_control:
         control_queue.put((sensor_data, sensor_data.frame, sensor_name))
-        
+
+
 # ==============================================================================
 # -- game_loop() ---------------------------------------------------------------
 # ==============================================================================
@@ -1146,13 +1141,22 @@ def game_loop(args):
     thread_obj2 = None
     sensor_list = []
     sensor_queue = Queue()
-    control_queue = Queue()
+    control_queue = Queue(2)
+    #c = world.player.get_control()
     c = carla.VehicleControl()
 
     try:
         client = carla.Client(args.host, args.port)
         client.set_timeout(2.0)
         world_ = client.get_world()
+
+        original_settings = world_.get_settings()
+        settings = world_.get_settings()
+
+        # We set CARLA syncronous mode
+        #settings.fixed_delta_seconds = 0.2
+        #settings.synchronous_mode = True
+        #world_.apply_settings(settings)
 
         display = pygame.display.set_mode(
             (args.width, args.height),
@@ -1165,36 +1169,37 @@ def game_loop(args):
         controller = KeyboardControl(world, args.autopilot)
 
         blueprint_library = world_.get_blueprint_library()
-        camera_bp = blueprint_library.find('sensor.camera.rgb')
+
+        camera_f_bp = blueprint_library.find('sensor.camera.rgb')
         camera_l_bp = blueprint_library.find('sensor.camera.rgb')
         camera_r_bp = blueprint_library.find('sensor.camera.rgb')
         camera_b_bp = blueprint_library.find('sensor.camera.rgb')
 
         # set the attributes of newly-added blueprints
-        camera_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
-        camera_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
-        camera_bp.set_attribute('fov', '120')
-        camera_bp.set_attribute('sensor_tick', '1.5')
+        camera_f_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
+        camera_f_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
+        camera_f_bp.set_attribute('fov', '120')
+        camera_f_bp.set_attribute('sensor_tick', '0.25')
 
         camera_l_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
         camera_l_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
         camera_l_bp.set_attribute('fov', '120')
-        camera_l_bp.set_attribute('sensor_tick', '1.5')
+        camera_l_bp.set_attribute('sensor_tick', '0.25')
 
         camera_r_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
         camera_r_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
         camera_r_bp.set_attribute('fov', '120')
-        camera_r_bp.set_attribute('sensor_tick', '1.5')
+        camera_r_bp.set_attribute('sensor_tick', '0.25')
 
         camera_b_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
         camera_b_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
         camera_b_bp.set_attribute('fov', '120')
-        camera_b_bp.set_attribute('sensor_tick', '1.5')
+        camera_b_bp.set_attribute('sensor_tick', '0.25')
 
         # Adjust sensors location relative to vehicle
-        cam_location = carla.Location(2.5,0,1.5)
-        cam_rotation = carla.Rotation(-50,0,0)
-        camera_spawn_point = carla.Transform(cam_location,cam_rotation)
+        cam_f_location = carla.Location(2.5,0,1.5)
+        cam_f_rotation = carla.Rotation(-50,0,0)
+        camera_f_spawn_point = carla.Transform(cam_f_location, cam_f_rotation)
 
         cam_r_location = carla.Location(1.0, 1.2, 0.5)
         cam_r_rotation = carla.Rotation(-50,90,0)
@@ -1204,27 +1209,25 @@ def game_loop(args):
         cam_l_rotation = carla.Rotation(-50,-90,0)
         camera_l_spawn_point = carla.Transform(cam_l_location,cam_l_rotation)
 
-        cam_b_location = carla.Location(1.5, 0 ,1.5)
-        cam_b_rotation = carla.Rotation(0, 0, 0)
-        camera_b_spawn_point = carla.Transform(cam_b_location, cam_b_rotation)
+        cam_b_location = carla.Location(1.5,0,1.5)
+        cam_b_rotation = carla.Rotation(0,0,0)
+        camera_b_spawn_point = carla.Transform(cam_b_location,cam_b_rotation)
 
         # spawn the sensors and attach them to the vehicle
-        camera_sensor = world_.spawn_actor(camera_bp, camera_spawn_point, attach_to=ego_vehicle, attachment_type=carla.AttachmentType.Rigid)
+        camera_f_sensor = world_.spawn_actor(camera_f_bp, camera_f_spawn_point, attach_to=ego_vehicle, attachment_type=carla.AttachmentType.Rigid)
         camera_l_sensor = world_.spawn_actor(camera_l_bp, camera_l_spawn_point, attach_to=ego_vehicle, attachment_type=carla.AttachmentType.Rigid)
         camera_r_sensor = world_.spawn_actor(camera_r_bp, camera_r_spawn_point, attach_to=ego_vehicle, attachment_type=carla.AttachmentType.Rigid)
         camera_b_sensor = world_.spawn_actor(camera_b_bp, camera_b_spawn_point, attach_to=ego_vehicle, attachment_type=carla.AttachmentType.Rigid)
 
-        camera_sensor.listen(lambda image: sensor_callback(image, sensor_queue, control_queue, "camera_f"))
+        camera_f_sensor.listen(lambda image: sensor_callback(image, sensor_queue, control_queue, "camera_f"))
         camera_l_sensor.listen(lambda image: sensor_callback(image, sensor_queue, control_queue, "camera_l"))
         camera_r_sensor.listen(lambda image: sensor_callback(image, sensor_queue, control_queue, "camera_r"))
         camera_b_sensor.listen(lambda image: sensor_callback(image, sensor_queue, control_queue, "camera_b"))
 
-        sensor_list.append(camera_sensor)
+        sensor_list.append(camera_f_sensor)
         sensor_list.append(camera_l_sensor)
         sensor_list.append(camera_r_sensor)
         sensor_list.append(camera_b_sensor)
-
-        clock = pygame.time.Clock()
 
         def get_queue(sensor_list, sensor_queue):
             while True:
@@ -1233,12 +1236,14 @@ def game_loop(args):
                     sensor_data = s_frame[0]
                     sensor_frame = s_frame[1]
                     sensor_name = s_frame[2]
-                    if 'lidar_forward' in sensor_name:
-                        #sensor_data.save_to_disk('/home/wbkou/data/lidar_f/t01_%010d.ply' % sensor_frame) #for linux
-                        sensor_data.save_to_disk('E:/wbkou/data/lidar_f/t01_%010d.ply' % sensor_frame) #for windows
-                    if 'camera' in sensor_name:
-                        #sensor_data.save_to_disk('/home/wbkou/data/rgb/t01_%010d.png' % sensor_frame) #for linux
-                        sensor_data.save_to_disk('E:/wbkou/data/rgb/t01_%010d.png' % sensor_frame) #for windows
+                    if 'camera_f' in sensor_name:
+                        sensor_data.save_to_disk('/home/wbkou/data/imgs_f/t01_%010d.png' % sensor_frame) #for linux
+                    if 'camera_l' in sensor_name:
+                        sensor_data.save_to_disk('/home/wbkou/data/imgs_l/t01_%010d.png' % sensor_frame) #for linux
+                    if 'camera_r' in sensor_name:
+                        sensor_data.save_to_disk('/home/wbkou/data/imgs_r/t01_%010d.png' % sensor_frame) #for linux
+                    if 'camera_b' in sensor_name:
+                        sensor_data.save_to_disk('/home/wbkou/data/imgs_b/t01_%010d.png' % sensor_frame) #for linux
                 elif not is_capturing and global_quit:
                     break
 
@@ -1246,150 +1251,10 @@ def game_loop(args):
         thread_obj.start()
         time.sleep(0.6)
 
-        def predict(sensor_list, control_queue):
-            from fusion import ActionPredModel
-            from config import data_transform
-            import torch.nn as nn
-
-            softmax = nn.Softmax(dim=1)
-
-            action_model = ActionPredModel()
-
-            action_model.load_state_dict(torch.load('./checkpoints/action_model.pth'))
-            
-            action_model.cuda()
-
-            action_model.eval()
-
-            images_f = torch.rand([1, 3, IMG_HEIGHT, IMG_WIDTH], dtype=torch.float32).cuda()
-            images_l = torch.rand([1, 3, IMG_HEIGHT, IMG_WIDTH], dtype=torch.float32).cuda()
-            images_r = torch.rand([1, 3, IMG_HEIGHT, IMG_WIDTH], dtype=torch.float32).cuda()
-            images_b = torch.rand([1, 3, IMG_HEIGHT, IMG_WIDTH], dtype=torch.float32).cuda()
-
-            _, _ = action_model(images_f, images_l, images_r, images_b)
-
-            current_lights = carla.VehicleLightState.NONE
-            global is_start
-            is_start = True
-            time.sleep(2)
-            rgb = None
-            lidar = None
-            ca_sen_frame = 0
-            while True:
-                if is_il_control and not global_quit:
-                    start = time.clock()
-                    for i in sensor_list:
-                        s_frame = control_queue.get(True, 1.0)
-                        sensor_data = s_frame[0]
-                        sensor_frame = s_frame[1]
-                        sensor_name = s_frame[2]
-                        if 'camera_f' in sensor_name:
-                            raw_img = np.frombuffer(sensor_data.raw_data, dtype=np.dtype("uint8")).copy()
-                            img = np.reshape(raw_img, (sensor_data.height, sensor_data.width, 4))
-                            rgb = img[:, :, :3]
-                            #cv2.imwrite("../code/dataset/produce/imgs_f/t01_%010d.png" % sensor_frame, rgb)
-                            rgb[..., [0, 1, 2]] = rgb[..., [2, 1, 0]]
-                            rgb = data_transform(rgb)
-                            rgb_f = rgb[None].cuda()
-                        if 'camera_l' in sensor_name:
-                            raw_img = np.frombuffer(sensor_data.raw_data, dtype=np.dtype("uint8")).copy()
-                            img = np.reshape(raw_img, (sensor_data.height, sensor_data.width, 4))
-                            rgb = img[:, :, :3]
-                            #cv2.imwrite("../code/dataset/produce/imgs_l/t01_%010d.png" % sensor_frame, rgb)
-                            rgb[..., [0, 1, 2]] = rgb[..., [2, 1, 0]]
-                            rgb = data_transform(rgb)
-                            rgb_l = rgb[None].cuda()
-                        if 'camera_r' in sensor_name:
-                            raw_img = np.frombuffer(sensor_data.raw_data, dtype=np.dtype("uint8")).copy()
-                            img = np.reshape(raw_img, (sensor_data.height, sensor_data.width, 4))
-                            rgb = img[:, :, :3]
-                            #cv2.imwrite("../code/dataset/produce/imgs_r/t01_%010d.png" % sensor_frame, rgb)
-                            rgb[..., [0, 1, 2]] = rgb[..., [2, 1, 0]]
-                            rgb = data_transform(rgb)
-                            rgb_r = rgb[None].cuda()
-                        if 'camera_b' in sensor_name:
-                            raw_img = np.frombuffer(sensor_data.raw_data, dtype=np.dtype("uint8")).copy()
-                            img = np.reshape(raw_img, (sensor_data.height, sensor_data.width, 4))
-                            rgb = img[:, :, :3]
-                            #cv2.imwrite("../code/dataset/produce/imgs_r/t01_%010d.png" % sensor_frame, rgb)
-                            rgb[..., [0, 1, 2]] = rgb[..., [2, 1, 0]]
-                            rgb = data_transform(rgb)
-                            rgb_b = rgb[None].cuda()
-
-                    out_thro_brake, out_steer = action_model(rgb_f, rgb_l, rgb_r, rgb_b)
-                    steer_prob = softmax(out_steer).detach().cpu().numpy().squeeze()
-
-                    #print("Output steer: ", steer_prob)
-
-                    maxidx = np.argmax(steer_prob)
-                    #steer = 0 if maxidx == 0 else 0.2 if maxidx == 1 else -0.2 #3 class
-                    if maxidx == 0:
-                        steer = 0.0
-                    elif maxidx == 1:
-                        steer = 0.125
-                    elif maxidx == 2:
-                        steer = 0.275
-                    elif maxidx == 3:
-                        steer = 0.425
-                    elif maxidx == 4:
-                        steer = -0.125
-                    elif maxidx == 5:
-                        steer = -0.275
-                    elif maxidx == 6:
-                        steer = -0.425
-
-                    end = time.clock()
-                    print("Prediction time: ", end - start)
-
-                    throttle = float(out_thro_brake[0, 0].detach().cpu().numpy())
-
-                    #throttle = 0.3 if steer == 0 else 0.15
-
-                    brake = float(out_thro_brake[0, 1].detach().cpu().numpy())
-
-                    reverse = False
-
-                    print("Action: ", throttle, steer, brake)
-
-                    c.throttle = throttle 
-                    c.steer = steer 
-                    c.brake = brake
-                    c.reverse = reverse 
-                    c.hand_brake = False
-                    c.manual_gear_shift = False
-                    c.gear = 1 if c.reverse else -1
-
-                    if c.brake:
-                        current_lights |= carla.VehicleLightState.Brake
-                    else: # Remove the Brake flag
-                        current_lights &= ~carla.VehicleLightState.Brake
-                    if c.reverse:
-                        current_lights |= carla.VehicleLightState.Reverse
-                    else: # Remove the Reverse flag
-                        current_lights &= ~carla.VehicleLightState.Reverse
-                    ego_vehicle.set_light_state(carla.VehicleLightState(current_lights))
-                 
-                elif global_quit:
-                    break
-
-        thread_obj1 = threading.Thread(target=predict, args=(sensor_list, control_queue))
-        thread_obj1.start()
-        time.sleep(0.6)
-
-        def send_cmd():
-            while True:
-                if is_il_control:
-                    ego_vehicle.apply_control(c)
-                if global_quit:
-                    break
-
-
-        thread_obj2 = threading.Thread(target=send_cmd)
-        thread_obj2.start()
-        time.sleep(0.6)
-
+        clock = pygame.time.Clock()
         while True:
-            clock.tick_busy_loop(60)
+            #clock.tick_busy_loop(60)
+            clock.tick_busy_loop(4)
             if controller.parse_events(client, world, clock):
                 return
             world.tick(clock)
@@ -1397,11 +1262,10 @@ def game_loop(args):
             pygame.display.flip()
 
     finally:
+        #world_.apply_settings(original_settings)
         thread_obj.join()
-        thread_obj1.join()
-        thread_obj2.join()
-        #np.save('/home/wbkou/data/t01_action.npy', ego_action) #for linux
-        np.save('E:/wbkou/data/t01_action.npy', ego_action) #for windows
+        np.save('/home/wbkou/data/t01_action.npy', ego_action) #for linux
+        #np.save('E:/wbkou/data/t01_action.npy', ego_action) #for windows
 
         if (world and world.recording_enabled):
             client.stop_recorder()

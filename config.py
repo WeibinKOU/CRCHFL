@@ -15,4 +15,3 @@ data_transform = transforms.Compose([transforms.ToTensor(),
     #transforms.Normalize(mean=[0.51726955, 0.539306, 0.5525119],
     #    std=[0.19789377, 0.19814016, 0.21107046])
     ])
-
