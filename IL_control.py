@@ -1174,22 +1174,22 @@ def game_loop(args):
         camera_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
         camera_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
         camera_bp.set_attribute('fov', '120')
-        camera_bp.set_attribute('sensor_tick', '1.3')
+        camera_bp.set_attribute('sensor_tick', '1.5')
 
         camera_l_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
         camera_l_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
         camera_l_bp.set_attribute('fov', '120')
-        camera_l_bp.set_attribute('sensor_tick', '1.3')
+        camera_l_bp.set_attribute('sensor_tick', '1.5')
 
         camera_r_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
         camera_r_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
         camera_r_bp.set_attribute('fov', '120')
-        camera_r_bp.set_attribute('sensor_tick', '1.3')
+        camera_r_bp.set_attribute('sensor_tick', '1.5')
 
         camera_b_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
         camera_b_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
         camera_b_bp.set_attribute('fov', '120')
-        camera_b_bp.set_attribute('sensor_tick', '1.3')
+        camera_b_bp.set_attribute('sensor_tick', '1.5')
 
         # Adjust sensors location relative to vehicle
         cam_location = carla.Location(2.5,0,1.5)
@@ -1271,7 +1271,7 @@ def game_loop(args):
             current_lights = carla.VehicleLightState.NONE
             global is_start
             is_start = True
-            #time.sleep(1.5)
+            time.sleep(2)
             rgb = None
             lidar = None
             ca_sen_frame = 0

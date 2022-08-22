@@ -65,10 +65,10 @@ def main():
 
     scheduler = Scheduler(args.total_size, 150, 450 * 4)
 
-    scheduler.set_edge_fed_interval = args.edge_fed_interval
-    scheduler.set_cloud_fed_interval = args.cloud_fed_interval
-    scheduler.set_pretrain_epochs = args.pretrain_epochs
-    scheduler.set_pretrain_batch_cnt = args.pretrain_batch_cnt
+    scheduler.set_edge_fed_interval(args.edge_fed_interval)
+    scheduler.set_cloud_fed_interval(args.cloud_fed_interval)
+    scheduler.set_pretrain_epochs(args.pretrain_epochs)
+    scheduler.set_pretrain_batch_cnt(args.pretrain_batch_cnt)
 
     cloud = CloudServer(aug_seq, training_config, tb, scheduler)
 
