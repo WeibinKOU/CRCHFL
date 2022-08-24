@@ -262,10 +262,14 @@ class World(object):
                 print('There are no spawn points available in your map/town.')
                 print('Please add some Vehicle Spawn Point to your UE4 scene.')
                 sys.exit(1)
-            spawn_points = self.map.get_spawn_points()
-            #spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
-            spawn_point = carla.Transform(carla.Location(x=300.705978, y=133.239975, z=0.300000), carla.Rotation(pitch=0.000000, yaw=-0.000092, roll=0.000000)) #Town01
-            #spawn_point = carla.Transform(carla.Location(x=135.9, y=226.0, z=0.000000), carla.Rotation(pitch=0.000000, yaw=-0.000092, roll=0.000000)) #Town02
+            spawn_point = None
+            if self.map.name == 'Town01':
+                spawn_point = carla.Transform(carla.Location(x=300.705978, y=133.239975, z=0.300000), carla.Rotation(pitch=0.000000, yaw=-0.000092, roll=0.000000))
+            elif self.map.name == 'Town02':
+                spawn_point = carla.Transform(carla.Location(x=45.239998, y=225.589996, z=0.500000), carla.Rotation(pitch=0.000000, yaw=-89.999817, roll=0.000000))
+            else:
+                spawn_points = self.map.get_spawn_points()
+                spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
 
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
             self.modify_vehicle_physics(self.player)
