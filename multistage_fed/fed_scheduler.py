@@ -21,6 +21,7 @@ class Scheduler():
         self.pretrain_batch_cnt=5
 
     def transfer_entries(self, entries_cnt):
+        ret = True
         if not self.is_unlimited:
             self.remain_size -= entries_cnt * self.entry_size
             ret = True if self.remain_size >=0 else False
@@ -29,6 +30,7 @@ class Scheduler():
         return ret
 
     def transfer_model(self):
+        ret = True
         if not self.is_unlimited:
             self.remain_size -= self.model_size
             ret = True if self.remain_size >=0 else False
