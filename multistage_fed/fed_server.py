@@ -209,8 +209,8 @@ class CloudServer():
                 self.SinkModelToEdges()
                 for edge in self.edges:
                     edge.SinkModelToClients()
-                save_path = save_path + "/FL_%d_action.pth" % j
-                torch.save(self.avgModel, save_path)
+                save_name = save_path + "/FL_%d_action.pth" % j
+                torch.save(self.avgModel, save_name)
             else:
                 for edge in self.edges:
                     edge.FedAvg()
@@ -478,8 +478,8 @@ class CloudServer():
             self.tb.add_scalar('Cloud.Train.Train.Accuracy', steer_acc, epoch)
 
             if epoch % 3 == 2:
-                save_path = save_path + "/No_FL_%d_action.pth" % epoch
-                torch.save(self.model.state_dict(), save_path)
+                save_name = save_path + "/No_FL_%d_action.pth" % epoch
+                torch.save(self.model.state_dict(), save_name)
 
             eval_loss, eval_acc = self.Evaluate()
             self.tb.add_scalar('Cloud.Train.Eval.Loss', eval_loss, epoch)
