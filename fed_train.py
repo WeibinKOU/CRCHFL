@@ -4,7 +4,8 @@ import torch.nn as nn
 import torch
 import torchvision
 from tqdm import tqdm
-from torch.utils.tensorboard import SummaryWriter
+#from torch.utils.tensorboard import SummaryWriter
+from tensorboardX import SummaryWriter
 import sys
 import imgaug.augmenters as iaa
 from config import *
@@ -39,9 +40,17 @@ def build_parser():
     args = parser.parse_args()
     return args
 
+def save_cmd(log_dir):
+    txt_file = open(log_dir +'/cmd.txt', 'w')
+    cmd=" ".join("\"" + arg + "\"" if " " in arg else arg for arg in sys.argv)
+    cmd = 'python ' + cmd
+    txt_file.write(cmd)
+    txt_file.close()
+
 def main():
     print_device_info()
     tb = SummaryWriter()
+    save_cmd(tb.logdir)
     args = build_parser()
 
     training_config = {}
@@ -70,7 +79,13 @@ def main():
     scheduler.set_pretrain_epochs(args.pretrain_epochs)
     scheduler.set_pretrain_batch_cnt(args.pretrain_batch_cnt)
 
-    cloud = CloudServer(aug_seq, training_config, tb, scheduler)
+    platform = sys.platform
+    if 'win' in platform:
+        log_dir = tb.logdir.split('\\')[-1]
+    elif 'linux' in platform:
+        log_dir = tb.logdir.split('/')[-1]
+
+    cloud = CloudServer(aug_seq, training_config, tb, scheduler, log_dir)
 
     try:
         if args.no_fl:

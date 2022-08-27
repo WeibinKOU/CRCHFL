@@ -42,14 +42,14 @@ python fed_train.py --total_size 30 --edge_fed_interval 1 --cloud_fed_interval 1
 ---
 Compared with the previous case, in this case it just changes the edge federated learning interval and cloud federated learning interval. The command to train is:<br>
 ```bash
-python fed_train.py --total_size 30 --edge_fed_interval 2 --cloud_fed_interval 2 --pretrain_epochs 20 --pretrain_batch_cnt 50
+python fed_train.py --total_size 30 --edge_fed_interval 2 --cloud_fed_interval 2 --pretrain_epochs 20 --pretrain_batch_cnt 40
 ```
 
 6. Limited data & Enable pretrain with more batches of training data & Optimized federated interval(both edge and cloud):
 ---
 Compared with the previous case, this case it just upload more training data to cloud server to do pretrain. The command to train is:<br>
 ```bash
-python fed_train.py --total_size 30 --edge_fed_interval 2 --cloud_fed_interval 2 --pretrain_epochs 20 --pretrain_batch_cnt 60
+python fed_train.py --total_size 30 --edge_fed_interval 2 --cloud_fed_interval 2 --pretrain_epochs 20 --pretrain_batch_cnt 45
 ```
 
 PS: It is noted that for all the limited data cases, the training process stops automatically when the data is used up!

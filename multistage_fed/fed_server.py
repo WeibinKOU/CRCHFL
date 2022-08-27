@@ -149,7 +149,7 @@ class EdgeServer():
         return loss, steer_acc
 
 class CloudServer():
-    def __init__(self, aug_seq, training_config, tensorboard, scheduler):
+    def __init__(self, aug_seq, training_config, tensorboard, scheduler, logdir):
         from .fed_config import config
         self.edges_num = len(config) - 1
         self.edges_dict = {}
@@ -160,6 +160,7 @@ class CloudServer():
         self.pretrain_config = training_config
         self.tb = tensorboard
         self.epochs = training_config['epochs']
+        self.logdir = logdir
 
         self.softmax = nn.Softmax(dim=1)
         self.mse_loss = nn.MSELoss().to(device)
@@ -194,6 +195,8 @@ class CloudServer():
         self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optim, step_size=20, gamma=0.1)
 
     def run(self):
+        save_path = ACTION_MODEL_PATH + self.logdir
+        os.mkdir(save_path)
         edge_fed_cnt = 0
         for j in range(self.epochs // self.scheduler.edge_fed_interval):
             for edge in self.edges:
@@ -206,7 +209,7 @@ class CloudServer():
                 self.SinkModelToEdges()
                 for edge in self.edges:
                     edge.SinkModelToClients()
-                save_path = ACTION_MODEL_PATH + "FL_%d_action.pth" % j
+                save_path = save_path + "/FL_%d_action.pth" % j
                 torch.save(self.avgModel, save_path)
             else:
                 for edge in self.edges:
@@ -397,6 +400,8 @@ class CloudServer():
 
     def train(self):
         epochs = 100
+        save_path = ACTION_MODEL_PATH + self.logdir
+        os.mkdir(save_path)
         for epoch in range(epochs):
             batch_cnt = []
             for item in self.train_data:
@@ -473,7 +478,7 @@ class CloudServer():
             self.tb.add_scalar('Cloud.Train.Train.Accuracy', steer_acc, epoch)
 
             if epoch % 3 == 2:
-                save_path = ACTION_MODEL_PATH + "No_FL_%d_action.pth" % epoch
+                save_path = save_path + "/No_FL_%d_action.pth" % epoch
                 torch.save(self.model.state_dict(), save_path)
 
             eval_loss, eval_acc = self.Evaluate()
