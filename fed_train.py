@@ -89,7 +89,9 @@ def main():
 
     try:
         if args.no_fl:
-            cloud.CollectTrainData('Edge0')
+            cloud.CollectOneEdgeTrainData('Edge0')
+            #cloud.CollectOneEdgeTrainData('Edge1')
+            #cloud.CollectAllEdgeTrainData()
             cloud.train()
             sys.exit()
 

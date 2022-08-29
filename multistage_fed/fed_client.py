@@ -62,29 +62,16 @@ class Client():
             }
 
     def PreparePretrainData(self):
-        dataloader = copy.deepcopy(self.dataloader)
-        action = copy.deepcopy(self.action)
-
-        data_list = []
-        for i in range(self.scheduler.pretrain_batch_cnt):
-            dataset = next(iter(dataloader))
-            action_batch = action.getitems(dataset[0])
-
-            data = {}
-            data['dataset'] = dataset
-            data['action'] = action_batch
-
-            data_list.append(data)
-
-        del dataloader
-        del action
+        data = {}
+        data['loader'] = self.dataloader
+        data['action'] = self.action
 
         ret = self.scheduler.transfer_entries(self.scheduler.pretrain_batch_cnt * self.batch_size)
         if not ret:
             print("Initialized data size is not enough to transfer pretaining data, so exit!")
             sys.exit()
 
-        return data_list
+        return data
 
     def PrepareTrainData(self):
         data = {}

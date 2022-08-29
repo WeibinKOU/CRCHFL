@@ -81,7 +81,7 @@ class EdgeServer():
     def PreparePretrainData(self):
         data = []
         for client in self.clients:
-            data += client.PreparePretrainData()
+            data.append(client.PreparePretrainData())
 
         ret = self.scheduler.transfer_entries(len(data) * self.batch_size)
         if not ret:
@@ -156,6 +156,8 @@ class CloudServer():
         self.pretrain_data = None
         self.train_data = None
         self.model = ActionPredModel().to(device)
+        if os.path.exists('./checkpoints/init_model.pth'):
+            self.model.load_state_dict(torch.load('./checkpoints/init_model.pth', map_location=torch.device(device)))
         self.avgModel = self.model.state_dict()
         self.pretrain_config = training_config
         self.tb = tensorboard
@@ -258,14 +260,14 @@ class CloudServer():
 
         self.pretrain_data = data
 
-    def CollectTrainData(self):
+    def CollectAllEdgeTrainData(self):
         data = []
         for edge in self.edges:
             data += edge.PrepareTrainData()
 
         self.train_data = data
 
-    def CollectTrainData(self, edge):
+    def CollectOneEdgeTrainData(self, edge):
         index = int(edge[-1])
         data = []
         data += self.edges[index].PrepareTrainData()
@@ -273,18 +275,30 @@ class CloudServer():
         self.train_data = data
 
     def Pretrain(self):
-        batch_cnt = len(self.pretrain_data)
+        batch_cnt = self.scheduler.pretrain_batch_cnt * len(self.pretrain_data)
         data_len = batch_cnt * self.pretrain_config['batch_size']
+
         for epoch in range(self.scheduler.pretrain_epochs):
+            data_iter = iter(self.pretrain_data)
+            first_data = next(data_iter)
+
+            dataloader = first_data['loader']
+            action = first_data['action']
+
             self.model.train()
 
             avg_loss1_sum = 0.0
             avg_loss2_sum = 0.0
             right_cnt = 0
-            for data in tqdm(self.pretrain_data):
-                data_batch, action_batch = data['dataset'], data['action']
-                imgs_f, imgs_l, imgs_r, imgs_b = data_batch[1], data_batch[2], data_batch[3], data_batch[4]
-
+            switch_num = 0
+            for iteration in tqdm(range(batch_cnt)):
+                if switch_num == self.scheduler.pretrain_batch_cnt:
+                    tmp_data = next(data_iter)
+                    dataloader = tmp_data['loader']
+                    action = tmp_data['action']
+                    switch_num = 0
+                names, imgs_f, imgs_l, imgs_r, imgs_b = next(iter(dataloader))
+                action_batch = action.getitems(names)
                 st_action, tb_action = action_batch[:, 1], action_batch[:, 0:3:2]
 
                 self.optim.zero_grad()
@@ -318,6 +332,7 @@ class CloudServer():
 
                 pred_res = out_prob==np.array(label)
                 right_cnt += sum(pred_res)
+                switch_num += 1
 
             self.lr_scheduler.step()
 

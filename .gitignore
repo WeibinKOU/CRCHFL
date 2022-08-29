@@ -33,4 +33,8 @@ multistage_fed/fed_scheduler.py~
 multistage_fed/fed_server.py~
 multistage_fed/.fed_server.py.swp
 train.py~
+utils/.curve_regression.py.un~
+utils/curve_regression.py~
 utils/curve_regresstion.py~
+multistage_fed/.fed_client.py.swp
+multistage_fed/.fed_client.py.un~
