@@ -41,10 +41,10 @@ class EdgeServer():
         self.clients = []
         for i in range(self.clients_num):
             cid = 'Vehicle'+str(i)
-            self.clients.append(Client(self.id, cid, client_global_idx, config[cid], self.eval_data, aug_seq, self.clients_dict,
+            self.clients.append(Client(self.id, cid, self.__class__.client_global_idx, config[cid], self.eval_data, aug_seq, self.clients_dict,
                                        self.clients_log, training_config, tensorboard, scheduler))
             print('Client %s.%s is initialized!' % (self.id, cid))
-            client_global_idx += 1
+            self.__class__.client_global_idx += 1
 
     def run(self):
         for i in range(self.clients_num):
