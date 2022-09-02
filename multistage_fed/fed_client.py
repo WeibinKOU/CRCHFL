@@ -66,12 +66,14 @@ class Client():
         data = {}
         data['loader'] = self.dataloader
         data['action'] = self.action
+        entries_cnt = self.scheduler.pretrain_batch_cnt[self.global_idx] * self.batch_size
 
-        self.scheduler.wireless_stat(self.scheduler.pretrain_batch_cnt[self.global_idx] * self.batch_size * self.scheduler.entry_size)
-        ret = self.scheduler.transfer_entries(self.scheduler.pretrain_batch_cnt[self.global_idx] * self.batch_size)
+        self.scheduler.wireless_stat(entries_cnt * self.scheduler.entry_size)
+        ret = self.scheduler.transfer_entries(entries_cnt)
         if not ret:
             print("Initialized data size is not enough to transfer pretaining data, so exit!")
             sys.exit()
+        data['entries_cnt'] = entries_cnt
 
         return data
 

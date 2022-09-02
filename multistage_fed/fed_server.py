@@ -84,11 +84,14 @@ class EdgeServer():
 
     def PreparePretrainData(self):
         data = []
+        entries_cnt = 0
         for client in self.clients:
-            data.append(client.PreparePretrainData())
+            cdata = client.PreparePretrainData()
+            entries_cnt += cdata['entries_cnt']
+            data.append(cdata)
 
-        self.scheduler.wireline_stat(len(data) * self.batch_size * self.scheduler.entry_size)
-        ret = self.scheduler.transfer_entries(len(data) * self.batch_size)
+        self.scheduler.wireline_stat(entries_cnt * self.scheduler.entry_size)
+        ret = self.scheduler.transfer_entries(entries_cnt)
         if not ret:
             print("Initialized data size is not enough to transfer pretaining data, so exit!")
             sys.exit()
