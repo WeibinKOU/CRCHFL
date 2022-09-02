@@ -34,7 +34,7 @@ def build_parser():
     parser.add_argument("--no_fl", action='store_true', help="whether to enable no-federated-learning")
     parser.add_argument("--pretrain_epochs", type=int, default=1, help="number of epochs of pretraining on Cloud Server")
     parser.add_argument("--epochs_after_pretrain", type=int, default=100, help="number of epochs of each vehicle after pretrain")
-    parser.add_argument("--pretrain_batch_cnt", type=int, default=5, help="how many batches of data that each vehicle should upload to Cloud Server to pretrain ")
+    parser.add_argument("--pretrain_batch_cnt", type=str, help="how many batches of data that each vehicle should upload to Cloud Server to pretrain ")
     parser.add_argument("--edge_fed_interval", type=int, default=1, help="each edge_fed_interval vehicle training to do a Edge Server federated learning")
     parser.add_argument("--cloud_fed_interval", type=int, default=1, help="each cloud_fed_interval Edge Server federated learning to do a Cloud Server federated learning")
     parser.add_argument("--total_size", type=int, default=30, help="total size of communication resource")
@@ -73,12 +73,14 @@ def main():
         iaa.Resize({'height': HEIGHT, 'width': WIDTH}),
     ])
 
+    pretrain_batch_cnt = [int(s.strip()) for s in args.pretrain_batch_cnt.split(",")]
+
     scheduler = Scheduler(args.total_size, 150, 450 * 4)
 
     scheduler.set_edge_fed_interval(args.edge_fed_interval)
     scheduler.set_cloud_fed_interval(args.cloud_fed_interval)
     scheduler.set_pretrain_epochs(args.pretrain_epochs)
-    scheduler.set_pretrain_batch_cnt(args.pretrain_batch_cnt)
+    scheduler.set_pretrain_batch_cnt(pretrain_batch_cnt)
     scheduler.set_epochs_after_pretrain(args.epochs_after_pretrain)
 
     platform = sys.platform

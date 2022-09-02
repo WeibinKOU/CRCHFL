@@ -14,9 +14,10 @@ from config import *
 from utils.one_hot import label2onehot
 
 class Client():
-    def __init__(self, server_id, client_id, config, test_data, aug_seq, clients_dict, clients_log, training_config, tensorboard, scheduler):
+    def __init__(self, server_id, client_id, global_idx, config, test_data, aug_seq, clients_dict, clients_log, training_config, tensorboard, scheduler):
         self.sid = server_id
         self.cid = client_id
+        self.global_idx = global_idx
         self.config = config
         self.tb = tensorboard
         self.epochs = training_config['epochs']
@@ -66,8 +67,8 @@ class Client():
         data['loader'] = self.dataloader
         data['action'] = self.action
 
-        self.scheduler.wireless_stat(self.scheduler.pretrain_batch_cnt * self.batch_size * self.scheduler.entry_size)
-        ret = self.scheduler.transfer_entries(self.scheduler.pretrain_batch_cnt * self.batch_size)
+        self.scheduler.wireless_stat(self.scheduler.pretrain_batch_cnt[self.global_idx] * self.batch_size * self.scheduler.entry_size)
+        ret = self.scheduler.transfer_entries(self.scheduler.pretrain_batch_cnt[self.global_idx] * self.batch_size)
         if not ret:
             print("Initialized data size is not enough to transfer pretaining data, so exit!")
             sys.exit()

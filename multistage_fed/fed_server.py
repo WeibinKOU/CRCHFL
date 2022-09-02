@@ -19,6 +19,7 @@ from config import *
 from utils.one_hot import label2onehot
 
 class EdgeServer():
+    client_global_idx = 0
     def __init__(self, server_id, config, test_data, aug_seq, edges_dict, training_config, tensorboard, scheduler):
         self.id = server_id
         self.clients_num = len(config)
@@ -40,9 +41,10 @@ class EdgeServer():
         self.clients = []
         for i in range(self.clients_num):
             cid = 'Vehicle'+str(i)
-            self.clients.append(Client(self.id, cid, config[cid], self.eval_data, aug_seq, self.clients_dict,
+            self.clients.append(Client(self.id, cid, client_global_idx, config[cid], self.eval_data, aug_seq, self.clients_dict,
                                        self.clients_log, training_config, tensorboard, scheduler))
             print('Client %s.%s is initialized!' % (self.id, cid))
+            client_global_idx += 1
 
     def run(self):
         for i in range(self.clients_num):
@@ -281,7 +283,7 @@ class CloudServer():
         self.train_data = data
 
     def Pretrain(self):
-        batch_cnt = self.scheduler.pretrain_batch_cnt * len(self.pretrain_data)
+        batch_cnt = sum(self.scheduler.pretrain_batch_cnt)
         data_len = batch_cnt * self.pretrain_config['batch_size']
 
         for epoch in range(self.scheduler.pretrain_epochs):
@@ -297,12 +299,14 @@ class CloudServer():
             avg_loss2_sum = 0.0
             right_cnt = 0
             switch_num = 0
+            loader_idx = 0
             for iteration in tqdm(range(batch_cnt)):
-                if switch_num == self.scheduler.pretrain_batch_cnt:
+                if switch_num == self.scheduler.pretrain_batch_cnt[loader_idx]:
                     tmp_data = next(data_iter)
                     dataloader = tmp_data['loader']
                     action = tmp_data['action']
                     switch_num = 0
+                    loader_idx += 1
                 names, imgs_f, imgs_l, imgs_r, imgs_b = next(iter(dataloader))
                 action_batch = action.getitems(names)
                 st_action, tb_action = action_batch[:, 1], action_batch[:, 0:3:2]

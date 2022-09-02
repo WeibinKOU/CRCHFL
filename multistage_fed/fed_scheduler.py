@@ -18,7 +18,7 @@ class Scheduler():
         self.edge_fed_interval = 1
         self.cloud_fed_interval=1
         self.pretrain_epochs=1
-        self.pretrain_batch_cnt=5
+        self.pretrain_batch_cnt=[]
         self.epochs_after_pretrain=100
         self.wireline_size=0
         self.wireless_size=0
@@ -54,7 +54,7 @@ class Scheduler():
         self.epochs_after_pretrain = epochs
 
     def set_pretrain_batch_cnt(self, cnt):
-        self.pretrain_batch_cnt = cnt
+        self.pretrain_batch_cnt += cnt
 
     def wireline_stat(self, size):
         self.wireline_size += size
