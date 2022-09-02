@@ -19,6 +19,9 @@ class Scheduler():
         self.cloud_fed_interval=1
         self.pretrain_epochs=1
         self.pretrain_batch_cnt=5
+        self.epochs_after_pretrain=100
+        self.wireline_size=0
+        self.wireless_size=0
 
     def transfer_entries(self, entries_cnt):
         ret = True
@@ -47,5 +50,14 @@ class Scheduler():
     def set_pretrain_epochs(self, epochs):
         self.pretrain_epochs = epochs
 
+    def set_epochs_after_pretrain(self, epochs):
+        self.epochs_after_pretrain = epochs
+
     def set_pretrain_batch_cnt(self, cnt):
         self.pretrain_batch_cnt = cnt
+
+    def wireline_stat(self, size):
+        self.wireline_size += size
+
+    def wireless_stat(self, size):
+        self.wireless_size += size

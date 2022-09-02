@@ -200,7 +200,7 @@ class CloudServer():
         save_path = ACTION_MODEL_PATH + self.logdir
         os.mkdir(save_path)
         edge_fed_cnt = 0
-        for j in range(self.epochs // self.scheduler.edge_fed_interval):
+        for j in range(self.scheduler.epochs_after_pretrain):
             for edge in self.edges:
                 edge.run()
 

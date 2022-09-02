@@ -33,6 +33,7 @@ def build_parser():
     parser.add_argument("--disable_pretrain", action='store_true', help="whether to enable pretaining stage to initialize all the models of edges and vehicles")
     parser.add_argument("--no_fl", action='store_true', help="whether to enable no-federated-learning")
     parser.add_argument("--pretrain_epochs", type=int, default=1, help="number of epochs of pretraining on Cloud Server")
+    parser.add_argument("--epochs_after_pretrain", type=int, default=100, help="number of epochs of each vehicle after pretrain")
     parser.add_argument("--pretrain_batch_cnt", type=int, default=5, help="how many batches of data that each vehicle should upload to Cloud Server to pretrain ")
     parser.add_argument("--edge_fed_interval", type=int, default=1, help="each edge_fed_interval vehicle training to do a Edge Server federated learning")
     parser.add_argument("--cloud_fed_interval", type=int, default=1, help="each cloud_fed_interval Edge Server federated learning to do a Cloud Server federated learning")
@@ -78,6 +79,7 @@ def main():
     scheduler.set_cloud_fed_interval(args.cloud_fed_interval)
     scheduler.set_pretrain_epochs(args.pretrain_epochs)
     scheduler.set_pretrain_batch_cnt(args.pretrain_batch_cnt)
+    scheduler.set_epochs_after_pretrain(args.epochs_after_pretrain)
 
     platform = sys.platform
     if 'win' in platform:
