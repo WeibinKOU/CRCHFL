@@ -66,6 +66,7 @@ class Client():
         data['loader'] = self.dataloader
         data['action'] = self.action
 
+        self.scheduler.wireless_stat(self.scheduler.pretrain_batch_cnt * self.batch_size * self.scheduler.entry_size)
         ret = self.scheduler.transfer_entries(self.scheduler.pretrain_batch_cnt * self.batch_size)
         if not ret:
             print("Initialized data size is not enough to transfer pretaining data, so exit!")
@@ -204,6 +205,7 @@ class Client():
 
             if epoch == self.scheduler.edge_fed_interval - 1:
                 self.clients_dict[self.cid] = self.model.state_dict()
+                self.scheduler.wireless_stat(self.scheduler.model_size)
                 ret = self.scheduler.transfer_model()
                 if not ret:
                     print("Initialized data size has been used up, so exit!")

@@ -65,6 +65,7 @@ class EdgeServer():
         self.fed_cnt += 1
 
         self.edges_dict[self.id] = self.avgModel
+        self.scheduler.wireline_stat(self.scheduler.model_size)
         ret = self.scheduler.transfer_model()
         if not ret:
             print("Initialized data size has been used up, so exit!")
@@ -73,6 +74,7 @@ class EdgeServer():
     def SinkModelToClients(self):
         for client in self.clients:
             client.updated_model = self.avgModel
+            self.scheduler.wireless_stat(self.scheduler.model_size)
             ret = self.scheduler.transfer_model()
             if not ret:
                 print("Initialized data size has been used up, so exit!")
@@ -83,6 +85,7 @@ class EdgeServer():
         for client in self.clients:
             data.append(client.PreparePretrainData())
 
+        self.scheduler.wireline_stat(len(data) * self.batch_size * self.scheduler.entry_size)
         ret = self.scheduler.transfer_entries(len(data) * self.batch_size)
         if not ret:
             print("Initialized data size is not enough to transfer pretaining data, so exit!")
@@ -218,6 +221,8 @@ class CloudServer():
                     edge.FedAvg()
                     edge.SinkModelToClients()
 
+            self.tb.add_scalar('Scheduler.Wireless.Size', self.scheduler.wireless_size, j)
+            self.tb.add_scalar('Scheduler.Wireline.Size', self.scheduler.wireline_size, j)
 
     def FedAvg(self):
         for edge in self.edges:
@@ -242,6 +247,7 @@ class CloudServer():
     def SinkModelToEdges(self):
         for edge in self.edges:
             edge.avgModel = self.avgModel
+            self.scheduler.wireline_stat(self.scheduler.model_size)
             ret = self.scheduler.transfer_model()
             if not ret:
                 print("Initialized data size has been used up, so exit!")
