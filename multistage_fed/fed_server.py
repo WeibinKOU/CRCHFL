@@ -206,7 +206,8 @@ class CloudServer():
 
     def run(self):
         save_path = ACTION_MODEL_PATH + self.logdir
-        os.mkdir(save_path)
+        if not os.path.exists(save_path):
+            os.mkdir(save_path)
         edge_fed_cnt = 0
         for j in range(self.scheduler.epochs_after_pretrain):
             for edge in self.edges:
@@ -225,6 +226,8 @@ class CloudServer():
                 for edge in self.edges:
                     edge.FedAvg()
                     edge.SinkModelToClients()
+                    save_name = save_path + "/%s_%d_fed_action.pth" % (edge.id, j)
+                    torch.save(edge.avgModel, save_name)
 
             self.tb.add_scalar('Scheduler.Wireless.Size', self.scheduler.wireless_size, j)
             self.tb.add_scalar('Scheduler.Wireline.Size', self.scheduler.wireline_size, j)
@@ -288,6 +291,9 @@ class CloudServer():
     def Pretrain(self):
         batch_cnt = sum(self.scheduler.pretrain_batch_cnt)
         data_len = batch_cnt * self.pretrain_config['batch_size']
+        save_path = ACTION_MODEL_PATH + self.logdir
+        if not os.path.exists(save_path):
+            os.mkdir(save_path)
 
         for epoch in range(self.scheduler.pretrain_epochs):
             data_iter = iter(self.pretrain_data)
@@ -364,6 +370,10 @@ class CloudServer():
             if epoch == self.scheduler.pretrain_epochs - 1:
                 self.avgModel = self.model.state_dict()
 
+
+            save_name = save_path + "/Pretrain_%d_action.pth" % epoch
+            torch.save(self.model.state_dict(), save_name)
+
             eval_loss, eval_acc = self.Evaluate()
             self.tb.add_scalar('Cloud.Pretrain.Eval.Loss', eval_loss, epoch)
             self.tb.add_scalar('Cloud.Pretrain.Eval.Accuracy', eval_acc, epoch)
@@ -429,7 +439,8 @@ class CloudServer():
     def train(self):
         epochs = 100
         save_path = ACTION_MODEL_PATH + self.logdir
-        os.mkdir(save_path)
+        if not os.path.exists(save_path):
+            os.mkdir(save_path)
         for epoch in range(epochs):
             batch_cnt = []
             for item in self.train_data:

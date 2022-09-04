@@ -4,7 +4,7 @@ This repository aims to build a multi-stage framework to train and evaluate a Fe
 There are two files which can be used to do this task, named train.py and fed\_train.py respectively. File train.py is mainly used to train a model that
 the training dataset is located at a single location, while the fed\_train.py is used to train the model with distributed dataset.
 
-Here I mainly introduce how to use fed\_train.py with different cases:
+Here I mainly introduce how to use fed\_train.py with different cases by offering some examples:
 
 1. No FL:
 ---
@@ -53,3 +53,31 @@ python fed_train.py --total_size 30 --edge_fed_interval 2 --cloud_fed_interval 2
 ```
 
 PS: It is noted that for all the limited data cases, the training process stops automatically when the data is used up!
+
+In order to evaluate our proposed model by using this framework, I can give some cases as follow(The arguments is produced by cvxpy):
+
+1. No Cloud:
+In this case, there does not exist the third stage of our proposed framework. The command to train is:<br>
+```bash
+python fed_train.py --total_size 60 --edge_fed_interval 1 --cloud_fed_interval 0 --pretrain_epochs 20 --pretrain_batch_cnt "91,91,0,0,0" --epochs_after_pretrain 69
+```
+2. Equal:
+In this case, all the three stage share the same communication resource. The command to train is:<br>
+```bash
+python fed_train.py --total_size 60 --edge_fed_interval 1 --cloud_fed_interval 1 --pretrain_epochs 20 --pretrain_batch_cnt "36,36,37,37,37" --epochs_after_pretrain 7
+```
+3. No Pretrain:
+In this case, there does not exist the first stage of our proposed framework. The command to train is:<br>
+```bash
+python fed_train.py --total_size 60 --edge_fed_interval 1 --cloud_fed_interval 1 --pretrain_epochs 0 --pretrain_batch_cnt "0,0,0,0,0" --epochs_after_pretrain 30
+
+4. Only Pretrain:
+In this case, there only exist the first stage of our proposed framework. The command to train is:<br>
+```bash
+python fed_train.py --total_size 60 --edge_fed_interval 1 --cloud_fed_interval 1 --pretrain_epochs 20 --pretrain_batch_cnt "91,91,80,80,48" --epochs_after_pretrain 0
+```
+5. Proposed:
+In this case, there does exist all the stages of our proposed framework and the arguments are produced by cvxpy. The command to train is:<br>
+```bash
+python fed_train.py --total_size 60 --edge_fed_interval 1 --cloud_fed_interval 1 --pretrain_epochs 20 --pretrain_batch_cnt "91,91,80,80,48" --epochs_after_pretrain 9
+```
