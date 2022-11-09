@@ -55,7 +55,7 @@ def main():
     args = build_parser()
 
     training_config = {}
-    training_config['epochs'] = args.epochs
+    training_config['epochs'] = args.epochs_after_pretrain
     training_config['batch_size'] = args.batch_size
     training_config['lr'] = args.lr
     training_config['betas'] = (args.b1, args.b2)

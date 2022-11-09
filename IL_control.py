@@ -265,8 +265,10 @@ class World(object):
             spawn_point = None
             if self.map.name == 'Town01':
                 spawn_point = carla.Transform(carla.Location(x=300.705978, y=133.239975, z=0.300000), carla.Rotation(pitch=0.000000, yaw=-0.000092, roll=0.000000))
+                #spawn_point = carla.Transform(carla.Location(x=92.11, y=30.82000977, z=30.0), carla.Rotation(pitch=0.000000, yaw=-90.000298, roll=0.000000))
             elif self.map.name == 'Town02':
-                spawn_point = carla.Transform(carla.Location(x=45.239998, y=225.589996, z=0.500000), carla.Rotation(pitch=0.000000, yaw=-89.999817, roll=0.000000))
+                #spawn_point = carla.Transform(carla.Location(x=45.239998, y=225.589996, z=0.500000), carla.Rotation(pitch=0.000000, yaw=-89.999817, roll=0.000000))
+                spawn_point = carla.Transform(carla.Location(x=135.88, y=215.27, z=0.500000), carla.Rotation(pitch=0.000000, yaw=-89.999817, roll=0.000000))
             else:
                 spawn_points = self.map.get_spawn_points()
                 spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
@@ -360,6 +362,7 @@ class KeyboardControl(object):
     """Class that handles keyboard input."""
     def __init__(self, world, start_in_autopilot):
         self._autopilot_enabled = start_in_autopilot
+        self.world = world
         if isinstance(world.player, carla.Vehicle):
             self._control = carla.VehicleControl()
             self._lights = carla.VehicleLightState.NONE
@@ -375,6 +378,7 @@ class KeyboardControl(object):
         world.hud.notification("Press 'H' or '?' for help.", seconds=4.0)
 
     def parse_events(self, client, world, clock):
+
         if isinstance(self._control, carla.VehicleControl):
             current_lights = self._lights
         global global_quit
@@ -1178,22 +1182,22 @@ def game_loop(args):
         camera_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
         camera_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
         camera_bp.set_attribute('fov', '120')
-        camera_bp.set_attribute('sensor_tick', '1.5')
+        camera_bp.set_attribute('sensor_tick', '1.1')
 
         camera_l_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
         camera_l_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
         camera_l_bp.set_attribute('fov', '120')
-        camera_l_bp.set_attribute('sensor_tick', '1.5')
+        camera_l_bp.set_attribute('sensor_tick', '1.1')
 
         camera_r_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
         camera_r_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
         camera_r_bp.set_attribute('fov', '120')
-        camera_r_bp.set_attribute('sensor_tick', '1.5')
+        camera_r_bp.set_attribute('sensor_tick', '1.1')
 
         camera_b_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
         camera_b_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
         camera_b_bp.set_attribute('fov', '120')
-        camera_b_bp.set_attribute('sensor_tick', '1.5')
+        camera_b_bp.set_attribute('sensor_tick', '1.1')
 
         # Adjust sensors location relative to vehicle
         cam_location = carla.Location(2.5,0,1.5)
@@ -1320,6 +1324,12 @@ def game_loop(args):
                             rgb = data_transform(rgb)
                             rgb_b = rgb[None].cuda()
 
+                    debug = world_.debug
+                    box = ego_vehicle.bounding_box
+                    debug.draw_box(carla.BoundingBox(ego_vehicle.get_transform().location, box.extent),ego_vehicle.get_transform().rotation, 0.2, carla.Color(255,0,0,0),0)
+
+                    #out_thro_brake, out_steer = None, None
+                    #with torch.no_grad():
                     out_thro_brake, out_steer = action_model(rgb_f, rgb_l, rgb_r, rgb_b)
                     steer_prob = softmax(out_steer).detach().cpu().numpy().squeeze()
 
@@ -1343,18 +1353,24 @@ def game_loop(args):
                         steer = -0.425
 
                     end = time.clock()
-                    print("Prediction time: ", end - start)
+                    #print("Prediction time: ", end - start)
 
-                    throttle = float(out_thro_brake[0, 0].detach().cpu().numpy())
+
+                    throttle = float(out_thro_brake[0, 0].detach().cpu().numpy())-0.35
+                    throttle = 0.0 if throttle < 0 else throttle 
+                    t = throttle - 0.1 if throttle > 0.2 else throttle
+                    throttle = 0.15 if throttle > 0.13 else throttle
+                    throttle = 0.1 if throttle < 0.08 else throttle 
 
                     #throttle = 0.3 if steer == 0 else 0.15
 
                     brake = float(out_thro_brake[0, 1].detach().cpu().numpy())
-                    brake = 0 if brake < 0.2 else brake
+                    brake = 0 if brake < 0.5 else brake
 
                     reverse = False
 
-                    print("Action: ", throttle, steer, brake)
+                    #print("Action: ", throttle, steer, brake)
+                    print("Action: ", t, steer, brake)
 
                     c.throttle = throttle 
                     c.steer = steer 
@@ -1392,11 +1408,23 @@ def game_loop(args):
         thread_obj2 = threading.Thread(target=send_cmd)
         thread_obj2.start()
         time.sleep(0.6)
+        spectator = world_.get_spectator()
+        transform = ego_vehicle.get_transform()
+        world_map = world_.get_map() 
+        if world_map.name == 'Town01':
+            #spectator.set_transform(carla.Transform(transform.location + carla.Location(x=0, z=50), carla.Rotation(pitch=-90)))
+            spectator.set_transform(carla.Transform(transform.location + carla.Location(x=0, z=600), carla.Rotation(pitch=-90)))
+        elif world_map.name == 'Town02': 
+            #spectator.set_transform(carla.Transform(transform.location + carla.Location(x=-20, z=50), carla.Rotation(pitch=-90)))
+            spectator.set_transform(carla.Transform(transform.location + carla.Location(x=-20, z=400), carla.Rotation(pitch=-90)))
 
         while True:
-            clock.tick_busy_loop(60)
+            clock.tick_busy_loop(4)
             if controller.parse_events(client, world, clock):
                 return
+            debug = world_.debug
+            box = ego_vehicle.bounding_box
+            debug.draw_box(carla.BoundingBox(ego_vehicle.get_transform().location, box.extent),ego_vehicle.get_transform().rotation, 0.2, carla.Color(255,0,0,0),0)
             world.tick(clock)
             world.render(display)
             pygame.display.flip()
@@ -1406,7 +1434,7 @@ def game_loop(args):
         thread_obj1.join()
         thread_obj2.join()
         #np.save('/home/wbkou/data/t01_action.npy', ego_action) #for linux
-        np.save('E:/wbkou/data/t01_action.npy', ego_action) #for windows
+        #np.save('E:/wbkou/data/t01_action.npy', ego_action) #for windows
 
         if (world and world.recording_enabled):
             client.stop_recorder()
