@@ -38,3 +38,10 @@ utils/curve_regression.py~
 utils/curve_regresstion.py~
 multistage_fed/.fed_client.py.swp
 multistage_fed/.fed_client.py.un~
+.fusion.py.swp
+fed_log/
+plot.py
+run.sh
+run1.sh
+run2.sh
+
