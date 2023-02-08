@@ -437,7 +437,7 @@ class CloudServer():
         return loss, steer_acc
 
     def train(self):
-        epochs = 100
+        epochs = 20
         save_path = ACTION_MODEL_PATH + self.logdir
         if not os.path.exists(save_path):
             os.mkdir(save_path)

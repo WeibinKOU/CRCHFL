@@ -46,7 +46,7 @@ class MultiImgData(Dataset):
         self.imgs_f = glob(root_dir + "/imgs_f/" + "/*.png")
         self.imgs_l = glob(root_dir + "/imgs_l/" + "/*.png")
         self.imgs_r = glob(root_dir + "/imgs_r/" + "/*.png")
-        self.imgs_b = glob(root_dir + "/imgs_b/" + "/*.png")
+        self.imgs_h = glob(root_dir + "/imgs_h/" + "/*.png")
         name_list = []
         platform = sys.platform
         for img in self.imgs_f:
@@ -65,17 +65,17 @@ class MultiImgData(Dataset):
         imgs_f = cv2.imread(self.imgs_f[index], cv2.IMREAD_COLOR)[..., ::-1]
         imgs_l = cv2.imread(self.imgs_l[index], cv2.IMREAD_COLOR)[..., ::-1]
         imgs_r = cv2.imread(self.imgs_r[index], cv2.IMREAD_COLOR)[..., ::-1]
-        imgs_b = cv2.imread(self.imgs_b[index], cv2.IMREAD_COLOR)[..., ::-1]
+        imgs_h = cv2.imread(self.imgs_h[index], cv2.IMREAD_COLOR)[..., ::-1]
         if self.aug is not None:
             imgs_f = self.aug(image=imgs_f)
             imgs_l = self.aug(image=imgs_l)
             imgs_r = self.aug(image=imgs_r)
-            imgs_b = self.aug(image=imgs_b)
+            imgs_h = self.aug(image=imgs_h)
         imgs_f = self.transform(imgs_f.copy())
         imgs_l = self.transform(imgs_l.copy())
         imgs_r = self.transform(imgs_r.copy())
-        imgs_b = self.transform(imgs_b.copy())
-        return names, imgs_f, imgs_l, imgs_r, imgs_b
+        imgs_h = self.transform(imgs_h.copy())
+        return names, imgs_f, imgs_l, imgs_r, imgs_h
 
 class ActionData():
     def __init__(self, action_file):
