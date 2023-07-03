@@ -81,3 +81,14 @@ In this case, there does exist all the stages of our proposed framework and the 
 ```bash
 python fed_train.py --total_size 60 --edge_fed_interval 1 --cloud_fed_interval 1 --pretrain_epochs 20 --pretrain_batch_cnt "91,91,80,80,48" --epochs_after_pretrain 9
 ```
+
+```bash
+@misc{kou2023communication,
+      title={Communication Resources Constrained Hierarchical Federated Learning for End-to-End Autonomous Driving}, 
+      author={Wei-Bin Kou and Shuai Wang and Guangxu Zhu and Bin Luo and Yingxian Chen and Derrick Wing Kwan Ng and Yik-Chung Wu},
+      year={2023},
+      eprint={2306.16169},
+      archivePrefix={arXiv},
+      primaryClass={cs.RO}
+}
+```
